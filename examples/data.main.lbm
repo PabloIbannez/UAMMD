@@ -1,15 +1,16 @@
 
 
-boxSize   200 75 100
-numberSteps  10000
-printSteps   3
-viscosity 9000
-numberParticles 3
-particleRadius 10
+boxSize   500 200 0
+numberSteps  100000
+
+printSteps  400
+
+relaxSteps  0000
+
+numberParticles 1
+particleRadius 40
+
+#viscosity 0.00363
+viscosity 0.03
 dt    1
-
-cells      200 75 100
-
-
-soundSpeed 10
-relaxTime 1
+soundSpeed 0.577
