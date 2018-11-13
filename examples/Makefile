@@ -47,7 +47,7 @@ BASIC_LINE= $(CUDA_ROOT)/bin/nvcc   -O3 -std=c++11 -x cu    $(INCLUDEFLAGS) $(OP
 all: test
 	$(BASIC_LINE)  $(FILE)
 
-test: benchmark lj ljMult dpd nvt bdhi pse bd bonds sph mcnvt
+test: benchmark lj ljMult dpd nvt bdhi pse bd bonds sph mcnvt fib icm
 
 
 benchmark:
@@ -74,7 +74,7 @@ fib:
 	$(BASIC_LINE) FIB.cu -lcurand -lcufft  -o fib
 
 icm:
-	$(BASIC_LINE) ICM.cu  -lcufft -lcudart -o icm
+	$(BASIC_LINE) ICM.cu  -lcufft -lcudart -lcurand -o icm
 
 lbm:
 	$(BASIC_LINE) LBM.cu -o lbm -lpng
@@ -92,7 +92,7 @@ mcnvt:
 	$(BASIC_LINE) MCNVT.cu  -o mcnvt
 
 clean:
-	rm -f lj dpd nvt bdhi pse icm bd bonds sph a.out ljMult benchmark mcnvt
+	rm -f lj dpd nvt bdhi pse icm bd bonds sph a.out ljMult benchmark mcnvt fib
 
 
 
