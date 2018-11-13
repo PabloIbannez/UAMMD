@@ -99,7 +99,7 @@ REFERENCES:
 #include<curand.h>
 
 
-#include"IBM_kernels.cuh"
+#include"misc/IBM_kernels.cuh"
 
 namespace uammd{
   namespace BDHI{
