@@ -103,13 +103,18 @@
 //List here all the properties with this syntax:
 /*       ((PropertyName, propertyName, TYPE))				\      */
 //The preprocessor ensures that they are included wherever is needed
-#define ALL_PROPERTIES_LIST ((Pos, pos, real4))     \
-                            ((Id, id, int))	       \
+#define ALL_PROPERTIES_LIST ((Pos, pos, real4))        \
+                            ((Id, id, int))	           \
                             ((Mass, mass, real))       \
-			    ((Force, force, real4))    \
-  			    ((Energy, energy, real))   \
-			    ((Vel, vel, real3))        \
-  			    ((Radius, radius, real))
+                            ((Force, force, real4))    \
+                            ((Energy, energy, real))   \
+                            ((Vel, vel, real3))        \
+                            ((Radius, radius, real))   \
+                            ((C6, C6, real))           \
+                            ((C12, C12, real))         \
+                            ((Charge, charge, real))   \
+                            ((SolvE, solvE, real))     \
+                            ((MolId, molId, int))   
 /*
 			    ((Torque, torque, real4))  \
   			    ((AngVel, angVel, real4))  \
