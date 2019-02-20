@@ -1,14 +1,96 @@
 #ifndef PROTEIN_POT_CUH
 #define PROTEIN_POT_CUH
 
+#include<thrust/device_vector.h>
+
 #include"ParticleData/ParticleData.cuh"
 #include"utils/Box.cuh"
-#include"Interactor/Potential/ParameterHandler.cuh"
 #include"third_party/type_names.h"
+
+namespace uammd{
+  namespace Potential{
+    
+    
+    template<class Functor>
+    class BasicAsymmetricParameterHandler{
+        private:
+            using PairParameters = typename Functor::PairParameters;          
+            thrust::device_vector<PairParameters> pairParameters;
+            
+            int ntypes;
+            real cutOff;
+      
+        public:
+            BasicAsymmetricParameterHandler():ntypes(1), cutOff(0){}
+
+            void add(int ti, int tj, typename Functor::InputPairParameters p){
+                
+                this->cutOff = std::max(p.cutOff, this->cutOff);
+                int new_ntypes = ntypes;
+                if(ti >= ntypes) new_ntypes = ti+1;
+                if(tj >= ntypes) new_ntypes = tj+1;
+                
+                pairParameters.resize(new_ntypes*new_ntypes);
+                
+                if(new_ntypes != ntypes){
+                    auto tmp = pairParameters;
+                    fori(0,ntypes)
+                    forj(0,ntypes){
+                        pairParameters[i+new_ntypes*j] = tmp[i+ntypes*j];
+                    }
+                    ntypes = new_ntypes;
+                }
+                
+                pairParameters[ti+ntypes*tj] = Functor::processPairParameters(p);
+            }
+
+        real getCutOff(){
+            return this->cutOff;	
+        }
+      
+        struct Iterator{
+            PairParameters * globalMem;
+
+            int ntypes;
+            Iterator(PairParameters * globalMem, int ntypes): globalMem(globalMem), ntypes(ntypes){}
+   
+            size_t getSharedMemorySize(){
+                return 0;
+            }
+
+            inline __device__ void zero(){}
+            
+            inline __device__ PairParameters operator()(int ti, int tj){
+                if(ntypes==1) return this->globalMem[0];
+            
+                #if CUB_PTX_ARCH < 300
+                constexpr auto cubModifier = cub::LOAD_DEFAULT;
+                #else
+                constexpr auto cubModifier = cub::LOAD_CA;
+                #endif
+                
+                cub::CacheModifiedInputIterator<cubModifier, PairParameters> itr(globalMem);
+            
+                int typeIndex = ti+this->ntypes*tj;	
+                if(ti >= ntypes || tj >= ntypes) typeIndex = 0;
+                return itr[typeIndex];
+            }
+        
+        };
+
+        Iterator getIterator(){
+            auto tp = thrust::raw_pointer_cast(pairParameters.data());
+            return Iterator(tp, ntypes);
+        }
+      
+    };
+  }
+}
+
 
 namespace uammd {
 namespace Potential {
-
+    
     struct sasaParameters {
     
         struct InputPairParameters {
@@ -38,7 +120,7 @@ namespace Potential {
         
             std::shared_ptr<System> sys;
         
-            shared_ptr<BasicParameterHandler<sasaParameters>> pairParameters;
+            shared_ptr<BasicAsymmetricParameterHandler<sasaParameters>> pairParameters;
             std::string name = "proteinPotential";
             
             real cutOff_;
@@ -53,7 +135,7 @@ namespace Potential {
                              debyeLength_(debyeLength),
                              epsilon_(epsilon)
             {
-                pairParameters = std::make_shared<BasicParameterHandler<sasaParameters>>();
+                pairParameters = std::make_shared<BasicAsymmetricParameterHandler<sasaParameters>>();
                 sys->log<System::MESSAGE>("[proteinPotential] Initialized");
             }
         
@@ -71,7 +153,7 @@ namespace Potential {
         
             class ForceTransverser {
                 public:
-                    using pairParameterIterator = typename BasicParameterHandler<sasaParameters>::Iterator;
+                    using pairParameterIterator = typename BasicAsymmetricParameterHandler<sasaParameters>::Iterator;
                 protected:
                     pairParameterIterator typeParameters;
             
@@ -194,7 +276,7 @@ namespace Potential {
             
                 class EnergyTransverser {
                 public:
-                    using pairParameterIterator = typename BasicParameterHandler<sasaParameters>::Iterator;
+                    using pairParameterIterator = typename BasicAsymmetricParameterHandler<sasaParameters>::Iterator;
                 protected:
                     pairParameterIterator typeParameters;
             
@@ -280,7 +362,7 @@ namespace Potential {
                         
                         real chgProduct = infoi.partChg*infoj.partChg;
                         
-                        energy = energy + chgProduct*exp(-invDebyeLength*r)*invDebyeLength*invr;
+                        energy = energy + chgProduct*exp(-invDebyeLength*r)*invEpsilon*invr;
                         
                         //solvent, gamma=-1
                         

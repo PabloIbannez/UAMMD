@@ -114,7 +114,9 @@
                             ((C12, C12, real))         \
                             ((Charge, charge, real))   \
                             ((SolvE, solvE, real))     \
-                            ((MolId, molId, int))   
+                            ((MolId, molId, int))      \
+                            ((SASA, SASA, real))       \
+                            ((Surf, surf, real))       
 /*
 			    ((Torque, torque, real4))  \
   			    ((AngVel, angVel, real4))  \
