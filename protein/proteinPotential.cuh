@@ -165,6 +165,7 @@ namespace Potential {
                     real* C6;
                     real* C12;
                     
+		    real f = 138.935410;
                     real* charge;
                     real  invDebyeLength;
                     real  invEpsilon;
@@ -228,25 +229,34 @@ namespace Potential {
                         const real invr6  = invr2*invr2*invr2;
                         const real invr12 = invr6*invr6;
                         
+			real fmod = 0;
+			
                         //vdW
                         
                         real C6  = infoi.partC6*infoj.partC6;
-                        real C12 = infoi.partC12*infoj.partC12;
+                        //real C6 = 0;
+			real C12 = infoi.partC12*infoj.partC12;
+			//real C12 = 0;
                         
-                        real fmod = (real(2)*C12*invr12-C6*invr6)*real(6)*invr;
+                        fmod = fmod + (real(2)*C12*invr12-C6*invr6)*real(6)*invr;
+			
+			if(r < powf(C12/C6,1.0/6.0) or fmod < -100.0){
+			    printf("%f %f %f %f %f %f %f %f %f\n",infoi.partC12,infoj.partC12,C12,infoi.partC6,infoj.partC6,C6,fmod,r,powf(C12/C6,1.0/6.0));
+			}
+			//
                         
                         //ele
                         
-                        real chgProduct = infoi.partChg*infoj.partChg;
-                        
-                        fmod = fmod + chgProduct*exp(-invDebyeLength*r)*(invDebyeLength*r+real(1))*(invr2*invEpsilon);
-                        
-                        //solvent, gamma=-1
-                        
-                        real solvE = infoi.partSolventE;
-                        auto sasaP = this->typeParameters((int) pi.w, (int) pj.w);
-                        
-                        fmod = fmod - solvE*sasaP.sasa*invr2;
+                        //real chgProduct = infoi.partChg*infoj.partChg;
+                        //
+                        //fmod = fmod + f*chgProduct*exp(-invDebyeLength*r)*(invDebyeLength*r+real(1))*(invr2*invEpsilon);
+                        //
+                        ////solvent, gamma=-1
+                        //
+                        //real solvE = infoi.partSolventE;
+                        //auto sasaP = this->typeParameters((int) pi.w, (int) pj.w);
+                        //
+                        //fmod = fmod - solvE*sasaP.sasa*invr2;
                         
                         return make_real4(-fmod*(r21/r),0);
                     }
@@ -351,25 +361,27 @@ namespace Potential {
                         const real invr6  = invr2*invr2*invr2;
                         const real invr12 = invr6*invr6;
                         
+			real energy = 0;
+			
                         //vdW
                         
                         real C6  = infoi.partC6*infoj.partC6;
                         real C12 = infoi.partC12*infoj.partC12;
                         
-                        real energy = C12*invr12-C6*invr6;
+                        energy = energy + C12*invr12-C6*invr6;
                         
-                        //ele
-                        
-                        real chgProduct = infoi.partChg*infoj.partChg;
-                        
-                        energy = energy + chgProduct*exp(-invDebyeLength*r)*invEpsilon*invr;
-                        
-                        //solvent, gamma=-1
-                        
-                        real solvE = infoi.partSolventE;
-                        auto sasaP = this->typeParameters((int) pi.w, (int) pj.w);
-                        
-                        energy = energy + solvE*sasaP.sasa*invr; //Falta termino sasa free
+                        ////ele
+                        //
+                        //real chgProduct = infoi.partChg*infoj.partChg;
+                        //
+                        //energy = energy + chgProduct*exp(-invDebyeLength*r)*invEpsilon*invr;
+                        //
+                        ////solvent, gamma=-1
+                        //
+                        //real solvE = infoi.partSolventE;
+                        //auto sasaP = this->typeParameters((int) pi.w, (int) pj.w);
+                        //
+                        //energy = energy + solvE*sasaP.sasa*invr; //Falta termino sasa free
                         
                         return energy;
                     }

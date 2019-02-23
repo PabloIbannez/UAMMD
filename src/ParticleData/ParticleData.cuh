@@ -116,7 +116,7 @@
                             ((SolvE, solvE, real))     \
                             ((MolId, molId, int))      \
                             ((SASA, SASA, real))       \
-                            ((Surf, surf, real))       
+                            ((Surf, surf, int))       
 /*
 			    ((Torque, torque, real4))  \
   			    ((AngVel, angVel, real4))  \

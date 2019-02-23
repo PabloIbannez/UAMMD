@@ -50,7 +50,17 @@ namespace uammd{
         template<typename ... Format>
         std::shared_ptr<ParticleData> read(std::shared_ptr<System> sys, std::string filePath){
             
+            std::stringstream ss;
+            
             std::fstream inputFile(filePath);
+            if (inputFile.fail()) {
+                ss.clear();
+                ss << "Error loading file \"" << filePath << "\".";
+                throw std::runtime_error(ss.str());
+            } else {
+                std::cerr << "File \"" << filePath << "\" opened." << std::endl;
+            }
+            
             std::string line;
             
             
@@ -77,7 +87,6 @@ namespace uammd{
             
             //class allMethods:public SeqMethod<Format ...>{} aM;
             SeqMethod<Format ...> aM;
-            std::stringstream ss;
             
             //Now each line is processed
             int i=0;
@@ -92,7 +101,9 @@ namespace uammd{
                     ss.str(line);
                     aM(pd,i,ss);
                     
+                    #ifdef DEBUG
                     std::cout << std::endl;
+                    #endif
                     
                     i++;
                 }

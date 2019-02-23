@@ -8,7 +8,7 @@ ARCH=
 
 #C++ compiler, I tested up to clang++-5.0
 #CXX=clang++-5.0
-CXX=g++
+CXX=g++-4.9
 
 #Cuda version (assumed to be in /usr/local/cuda*) You can change this in CUDA_ROOT
 #If not set it will be autodetected
@@ -96,6 +96,9 @@ sph:
 
 mcnvt:
 	$(BASIC_LINE) MCNVT.cu  -o mcnvt
+	
+reactionDiffusion:
+	$(BASIC_LINE) reactionDiffusion_FHD.cu  -o reactionDiffusion_FHD
 
 clean:
 	rm -f lj dpd nvt bdhi pse icm bd bonds sph a.out ljMult benchmark mcnvt fcm

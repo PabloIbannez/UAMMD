@@ -8,11 +8,11 @@ ARCH=61
 
 #C++ compiler, I tested up to clang++-5.0
 #CXX=clang++-5.0
-CXX=g++-4.9
+CXX=g++
 
 #Cuda version (assumed to be in /usr/local/cuda*) You can change this in CUDA_ROOT
 #If not set it will be autodetected
-CUDA_VER=
+CUDA_VER=10.0
 
 ifeq ($(CUDA_VER),)
 CUDA_VER:=$(shell ls -d /usr/local/cuda*/ | grep -Eo '\-[0-9]\.[0-9]' | cut -d- -f2 | sort -grk1 | head -1)
@@ -20,7 +20,7 @@ endif
 CUDA_ROOT=/usr/local/cuda-$(CUDA_VER)
 
 
-LOG_LEVEL=5
+LOG_LEVEL=8
 
 #Uncomment to add debug flags to nvcc
 #DEBUG=  -src-in-ptx -g -G -DUAMMD_DEBUG
