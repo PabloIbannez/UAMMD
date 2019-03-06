@@ -670,10 +670,10 @@ int main(int argc, char *argv[]){
 		auto verlet = std::make_shared<NVT>(pd, pgAll, sys, par);
 		
 		verlet->addInteractor(bondedforces);
-		//verlet->addInteractor(gaussianforces);
+		verlet->addInteractor(gaussianforces);
 		verlet->addInteractor(pairforces);
 		verlet->addInteractor(extWall);
-		//verlet->addInteractor(forcesProbe);
+		verlet->addInteractor(forcesProbe);
 		
 		outputStateAndWall(out,sys,pd,box,wallZ,wallRadius);
 		
