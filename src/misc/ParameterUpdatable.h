@@ -23,6 +23,7 @@
 //Add here any parameter you want along its type, after adding it here the function updateWHATEVER(type) will
 //be available for all ParameterUpdatable modules
 #define PARAMETER_LIST ((TimeStep, real)) \
+					   ((Step,int)) \
                        ((SimulationTime, real)) \
                        ((Box, Box)) \
                        ((Temperature, real)) \

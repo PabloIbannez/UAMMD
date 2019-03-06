@@ -130,7 +130,10 @@ namespace uammd{
     //Move the particles in my group 1 dt in time.
     void GronbechJensen::forwardTime(){
       CudaCheckError();
-      for(auto forceComp: interactors) forceComp->updateSimulationTime(steps*dt);
+      for(auto forceComp: interactors) {
+			forceComp->updateSimulationTime(steps*dt);
+			forceComp->updateStep(steps);
+	  }
     
       steps++;
       sys->log<System::DEBUG1>("[%s] Performing integration step %d", name.c_str(), steps);

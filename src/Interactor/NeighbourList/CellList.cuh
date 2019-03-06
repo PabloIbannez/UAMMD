@@ -695,7 +695,7 @@ namespace uammd{
       force_next_update = true;
     }
     void handlePosWriteRequested(){
-      sys->log<System::DEBUG>("[CellList] Issuing a list update after positions were written to.");
+      sys->log<System::DEBUG1>("[CellList] Issuing a list update after positions were written to.");
       force_next_update = true;
     }
   };
