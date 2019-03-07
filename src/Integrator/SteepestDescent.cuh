@@ -14,6 +14,7 @@ maxSteps:max number of steps
 ALGHORITHM:
 
 1. Compute system energy (Un) and the max force (Fmax)
+    if Fmax == INFINITY then Fmax=saturationForce
 2. New postions are computed:
 
     ri+1 = ri+(Fi/Fmax)*h
@@ -28,6 +29,7 @@ USAGE:
 SteepestDescent::Parameters STpar;
 STpar.h = 0.1;
 STpar.epsilon = 1;
+STpar.saturationForce = 100;
 STpar.maxSteps = 1000;
 
 auto st = make_shared<SteepestDescent>(pd, pg, sys, STpar);
@@ -66,6 +68,7 @@ namespace uammd{
       
     real h; //maximum displacement
     real epsilon; //force tolerance
+    real saturationForce;
     int maxSteps; //max number of steps
     
     int steps; //steps counter
@@ -91,6 +94,7 @@ namespace uammd{
     struct Parameters{
       real h = 0.01;
       real epsilon = 0;
+      real saturationForce = 100;
       int maxSteps = std::numeric_limits<int>::max();
       bool is2D = false;
     };

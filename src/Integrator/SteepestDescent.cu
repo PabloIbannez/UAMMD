@@ -37,6 +37,11 @@ namespace uammd{
 	}
       };
       
+      __device__ int sign(real x){ 
+          int t = x<0 ? -1 : 0;
+          return x > 0 ? 1 : t;
+    }
+      
       //In this kernel the particle positions are updated. 
       //The parameter "factor" is used with two values 1 or -1.
       //In the second case is to reverse the change.
@@ -52,8 +57,22 @@ namespace uammd{
 	  
 	  const int i = groupIterator[id];
 	  
-	  pos[i] += factor*(force[i]/maxForce)*h;
-	  
+      real fmod = sqrt(dot(force[i],force[i]));
+      
+      if(fmod/maxForce > real(1.0)){
+          real4 f;
+          
+          f.x = sign(force[i].x);
+          f.y = sign(force[i].y);
+          f.z = sign(force[i].z);
+          f.w = real(0);
+          
+          pos[i] += factor*f*h;
+          
+      } else {
+          pos[i] += factor*(force[i]/maxForce)*h;
+      }
+      
       }
   }
     
@@ -62,7 +81,7 @@ namespace uammd{
 				   shared_ptr<System> sys,		       
 				   SteepestDescent::Parameters par):
     Integrator(pd, pg, sys, "SteepestDescent"),
-    h(par.h), epsilon(par.epsilon),maxSteps(par.maxSteps),steps(0){
+    h(par.h), epsilon(par.epsilon),saturationForce(par.saturationForce),maxSteps(par.maxSteps),steps(0){
     
     sys->log<System::MESSAGE>("[SteepestDescent] Initial maximum displacement: %.3f", h);
     sys->log<System::MESSAGE>("[SteepestDescent] Force tolerance: %.3f", epsilon);
@@ -299,6 +318,6 @@ namespace uammd{
       cub::DeviceReduce::Max(cubTempStorageMax, cubTempStorageSizeMax, forceMaxIterator, maxForce, numberParticles, stream);
       cudaStreamSynchronize(stream);
       
-      return *maxForce;
+      return (*maxForce==INFINITY)?saturationForce:*maxForce;
   }
 }
