@@ -110,8 +110,7 @@
 			    			((Force, force, real4))    \
   			    			((Energy, energy, real))   \
 			    			((Vel, vel, real3))        \
-  			    			((Radius, radius, real))   \
-							((PlaneRadius, planeRadius, real))
+  			    			((Radius, radius, real))   
 /*
 			    ((Torque, torque, real4))  \
   			    ((AngVel, angVel, real4))  \
