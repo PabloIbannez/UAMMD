@@ -10,6 +10,8 @@
 #include "AFM_potential.cuh"
 #include "iogpf/iogpf.hpp"
 
+#include "third_party/cub/cub.cuh"
+
 using namespace uammd;
 
 #include <map>
@@ -209,7 +211,8 @@ struct WCA_Wall: public ParameterUpdatable{
 		const real z = abs(pos.z-zwall);
 		const real effDiam = radius+wallRadius;
             
-        if(z > real(1.122462)*effDiam){
+        //if(z > real(1.122462)*effDiam){
+        if(z > real(2.5)*effDiam){
 			return make_real3(0);
 		} else {
 			const real invz2   = real(1.0)/(z*z);
@@ -250,50 +253,65 @@ struct ConstantForce: public ParameterUpdatable{
 }; 
 
 struct ProbeForce: public ParameterUpdatable{
+    
 	
-	real fmod = 0;
-	real fmodIncr = 0.01;
+    real3 probePosition = {0,0,0};
+    
+    real  epsilon = 1;
+    real  probeRadius = 20;
+    
+	ProbeForce(real epsilon,real probeRadius):epsilon(epsilon),probeRadius(probeRadius){}
 	
-	real2 descentAxis = {0.0,0.0};
-	real k = 10;
-	
-	int termSteps;
-	int increSteps;
-	
-	ProbeForce(int termSteps, int increSteps):termSteps(termSteps),increSteps(increSteps){}
-	
-	__device__ __forceinline__ real3 force(const real4 &pos,const real &planeRadius){
-		
-		real dx = pos.x-descentAxis.x;
-		real dy = pos.y-descentAxis.y;
-		real r  = sqrt(dx*dx+dy*dy);
-		
-		real fPlane = -real(2.0)*k*(r-planeRadius);
-		
-		return make_real3(fPlane*dx/r,fPlane*dy/r,-fmod);
-	
+	__device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
+	    
+        real3 rtp = probePosition-make_real3(pos);
+        real  r2 = dot(rtp,rtp);
+        real  r  = sqrt(r2);
+        
+        real effDiam = probeRadius+radius;
+        
+        if(r < real(1.122462)*effDiam){
+            
+            const real invr2   = real(1.0)/r2;
+            const real Dinvr2  = effDiam*effDiam*invr2;
+            const real Dinvr6  = Dinvr2*Dinvr2*Dinvr2;
+            const real Dinvr12 = Dinvr6*Dinvr6;
+            
+            real fmod = real(4*6)*epsilon*(real(2)*Dinvr12-Dinvr6);
+            
+            return -fmod*rtp;
+            
+        } else {
+            return make_real3(0);
+        }
 	}
 	
 	std::tuple<const real4 *,const real *> getArrays(ParticleData *pd){
-		auto pos = pd->getPos(access::location::gpu, access::mode::read);
-		auto planeRadius = pd->getPlaneRadius(access::location::gpu, access::mode::read);
-		return std::make_tuple(pos.raw(),planeRadius.raw());
+		auto pos    = pd->getPos(access::location::gpu, access::mode::read);
+		auto radius = pd->getRadius(access::location::gpu, access::mode::read);
+		return std::make_tuple(pos.raw(),radius.raw());
 	}
-	
-	void updateStep(int step){
-		
-		if(step > termSteps and step%increSteps == 0){
-			fmod += fmodIncr;
-		}
-	}
-	
-	void setDescentAxis(real2 desAxis){
-		descentAxis = desAxis;
-	}
-	
-	real getCurrentForce(){
-		return fmod;
-	}
+    
+    void setProbePosition(real3 newProbePosition){
+        probePosition = newProbePosition;
+    }
+    
+    void setProbeHeight(real newHeight){
+        probePosition.z = newHeight;
+    }
+    
+    real3 getProbePosition(){
+        return probePosition;
+    }
+    
+    void setProbeRadius(real newProbeRadius){
+        probeRadius = newProbeRadius;
+    }
+    
+    real getProbeRadius(){
+        return probeRadius;
+    }
+    
 };
 
 void outputState(std::ofstream& os,
@@ -319,14 +337,20 @@ void outputState(std::ofstream& os,
 	
 }
 
-void outputStateAndWall(std::ofstream& os,
-			            std::shared_ptr<System> sys,
-			            std::shared_ptr<ParticleData> pd,
-			            Box box,
-			            real wallZ,
-			            real wallRadius){
+void outputState_ProbeWall(std::ofstream& os,
+                           std::shared_ptr<System> sys,
+                           std::shared_ptr<ParticleData> pd,
+                           Box box,
+                           real3 probePosition,
+                           real probeRadius,
+                           real wallZ,
+                           real wallRadius){
 							
 	outputState(os,sys,pd,box);
+    
+    os << probePosition                << " " 
+       << real(1.122462)*probeRadius   << " "
+       << -1 << std::endl;
 	
 	int  nx = std::ceil(box.boxSize.x/(real(2.0)*wallRadius));
 	int  ny = std::ceil(box.boxSize.x/(real(2.0)*wallRadius));
@@ -344,101 +368,128 @@ void outputStateAndWall(std::ofstream& os,
 	
 }
 
-class probeMeasuring{
-	
-	friend std::ostream& operator<< (std::ostream& os, const probeMeasuring& probM);
-	
-	private:
-	
-		struct posForce{
-			real3 pos;
-			real3 force;
-		};
-	
-		std::shared_ptr<System> sys;
-		
-		std::shared_ptr<ParticleData> pd;
-		std::shared_ptr<ParticleGroup> pgProbe;
-		
-		std::shared_ptr<ExternalForces<ProbeForce>> probeForce;
-		
-		std::vector<posForce> posForceCurrent;
-		std::vector<posForce> posForceMean;
-		
-		int probeN;
-		
-		
-	public:
-		
-		probeMeasuring(std::shared_ptr<System> sys,
-					   std::shared_ptr<ParticleData> pd,
-					   std::shared_ptr<ParticleGroup> pgProbe,
-					   std::shared_ptr<ExternalForces<ProbeForce>> probeForce)
-					   :sys(sys),pd(pd),pgProbe(pgProbe),probeForce(probeForce){
-			
-			probeN = pgProbe->getNumberParticles();
-		}
-					   
-		real3 computeProbePosition(){
-			
-			auto pos    = pd->getPos(access::location::cpu, access::mode::read);
-			auto iterProbe = pgProbe->getIndexIterator(access::location::cpu);
-			
-			real3 probeCentroid = {0,0,0};
-			
-			fori(0,probeN){
-				probeCentroid += make_real3(pos.raw()[iterProbe[i]]);
-			}
-			
-			return probeCentroid/probeN;
-			
-		}
-		
-		real3 computeProbeForce(){
-			
-			auto force     = pd->getForce(access::location::cpu, access::mode::read);
-			auto iterProbe = pgProbe->getIndexIterator(access::location::cpu);
-			
-			real3 probeForce = {0,0,0};
-			
-			fori(0,probeN){
-				probeForce += make_real3(force.raw()[iterProbe[i]]);
-			}
-			
-			return probeForce/probeN;
-		}
-					   
-		void measure(){
-			//posForceCurrent.push_back({this->computeProbePosition(),this->computeProbeForce()});
-			posForceMean.push_back({this->computeProbePosition(),this->computeProbeForce()});
-		}
+struct forceFunctor{
+    ParticleGroup::IndexIterator groupIterator;
+    
+    real4* force;
+    
+    forceFunctor(ParticleGroup::IndexIterator groupIterator,real4* force):groupIterator(groupIterator),force(force){}
+    
+    __host__ __device__ __forceinline__
+    real3 operator()(const int &index) const {
+    
+        int i = groupIterator[index];
+        return make_real3(force[i]); 
+    }
 };
 
-std::ostream& operator<< (std::ostream& os, const probeMeasuring& probM){
-	
-	for(auto& pF : probM.posForceMean){
-		os << pF.pos << " " << pF.force << std::endl;
-	}
-	
-	return os;
-	
-}
+template <class probeForce>
+class probeMeasuring{
+    
+    private:
+        
+        shared_ptr<System> sys;
+        
+        shared_ptr<ParticleData> pd;
+        shared_ptr<ParticleGroup> pg;
+        
+        shared_ptr<probeForce> probeF;
+        
+        cudaStream_t stream;
+        
+        //cub reduction variables
+        real3*   totalForce;
+        void*    cubTempStorageSum = NULL;
+        size_t   cubTempStorageSizeSum = 0;
+        
+        void setUpCubReduction(){
+            
+            //common
+            cub::CountingInputIterator<int> countingIterator(0);
+            auto groupIterator = pg->getIndexIterator(access::location::gpu);
+            
+            //force
+            auto force = pd->getForce(access::location::gpu, access::mode::read);
+            forceFunctor fF(groupIterator,force.raw());
+        
+            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            cudaMalloc(&cubTempStorageSum, cubTempStorageSizeSum);
+        }
+    
+    public:
+    
+        probeMeasuring(shared_ptr<System> sys,
+                       shared_ptr<ParticleData> pd,
+                       shared_ptr<ParticleGroup> pg,
+                       shared_ptr<probeForce> probeF):sys(sys),pd(pd),pg(pg),probeF(probeF){
+          
+          sys->log<System::MESSAGE>("[probeMeasuring] Created.");
+          
+          cudaStreamCreate(&stream);
+          
+          cudaMallocManaged((void**)&totalForce,sizeof(real3));
+          this->setUpCubReduction();
+        }
+        
+        ~probeMeasuring(){
+          
+            sys->log<System::MESSAGE>("[probeMeasuring] Destroyed.");
+            
+            cudaFree(totalForce);
+            cudaFree(cubTempStorageSum);
+            cudaStreamDestroy(stream);
+        }
+    
+        real3 sumForce(){
+          
+            int numberParticles = pg->getNumberParticles();
+            auto groupIterator = pg->getIndexIterator(access::location::gpu);
+            
+            int Nthreads=128;
+            int Nblocks=numberParticles/Nthreads + ((numberParticles%Nthreads)?1:0);
+            
+            {
+	            auto force = pd->getForce(access::location::gpu, access::mode::readwrite);
+                fillWithGPU<<<Nblocks, Nthreads>>>(force.raw(), groupIterator, make_real4(0), numberParticles);
+            }
+            
+            probeF->sumForce(stream);
+            cudaDeviceSynchronize();
+            
+            cub::CountingInputIterator<int> countingIterator(0);
+            
+            //force
+            auto force = pd->getForce(access::location::gpu, access::mode::read);
+            forceFunctor fF(groupIterator,force.raw());
+            
+            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            cudaStreamSynchronize(stream);
+            
+            return *totalForce;
+        }
+};
 
 using NVT = VerletNVT::GronbechJensen;
 
 int main(int argc, char *argv[]){
 	
-	
-	
+    real probeInitHeight = 30;
+    real initialVirusProbeSep = 3;
+    real probeRadius = 20;
+    real probeEpsilon = 1;
 	real wallRadius = 0.5;
-	real E = 1;
-    real sigma = 0.2;
+	real E = 0.1;
+    real sigma = 0.1;
     real cutOff = 1.5;
     real epsilon = 1;
-    int nstepsTerm = 0;
+    int nstepsTerm = 10000;
 	int printStepsTerm = 1000;
 	Box box({70.0,70.0,300.0});
-	real downwardForce = -0.1;
+	real downwardForce = 0;
 	int termStepsProbe = 1000;
 	int increStepsProbe = 10000;
 	real temperature = 2.479;
@@ -446,10 +497,10 @@ int main(int argc, char *argv[]){
 	real viscosity = 0.1;
 	int sortSteps = 500;
 	int nsteps = 10000000;
-    int printSteps = 1000;
-    real initialVirusProbeSep = 0.5;
+    int printSteps = 10000;
+    
     real probeAtomRadius = 1.5;
-    int measureSteps = 1000;
+    int measureSteps = 10000;
 	
 	////////////////////////////////////////////////////////////////////
     
@@ -470,7 +521,6 @@ int main(int argc, char *argv[]){
                           iogpf::molId,
                           iogpf::mass,
                           iogpf::radius,
-                          iogpf::planeRadius,
                           iogpf::pos>(sys,"p22_P.top");
                           
     int N = pd->getNumParticles();
@@ -479,12 +529,6 @@ int main(int argc, char *argv[]){
     ////////////////////////////////////////////////////////////////////
     
     auto pgAll = std::make_shared<ParticleGroup>(pd, sys, "All");
-    
-    molId_selector_positive mId_sel_pos;
-    auto pgVirus = std::make_shared<ParticleGroup>(mId_sel_pos,pd, sys, "Virus");
-    
-    molId_selector mId_sel(-1);
-    auto pgProbe = std::make_shared<ParticleGroup>(mId_sel,pd, sys, "Probe");
     
     /////////////////////INTERNAL INTERACTORS///////////////////////////
     ////////////////////////////////////////////////////////////////////
@@ -521,9 +565,8 @@ int main(int argc, char *argv[]){
     ////////////////////////////////////////////////////////////////////
     
     
-    //WALL
-    
     real wallZ;
+    real probeZ;
     
     real minZ =  INFINITY;
     real maxZ = -INFINITY;
@@ -534,32 +577,41 @@ int main(int argc, char *argv[]){
 		auto pos      = pd->getPos(access::location::cpu, access::mode::read);
 		auto radius   = pd->getRadius(access::location::cpu, access::mode::read);
 		
-		auto iterVirus = pgVirus->getIndexIterator(access::location::cpu);
-		
-		fori(0,pgVirus->getNumberParticles()){
-			real z = pos.raw()[iterVirus[i]].z;
+		fori(0,N){
+			real z = pos.raw()[i].z;
 			if(z < minZ){
 				minZ = z;
-				radiusClosestMin = radius.raw()[iterVirus[i]];
+				radiusClosestMin = radius.raw()[i];
 			}
 
 			if(z > maxZ){
 				maxZ = z;
-				radiusClosestMax = radius.raw()[iterVirus[i]];
+				radiusClosestMax = radius.raw()[i];
 			}
 		}
 	}
+    
+    //WALL
 	
 	wallZ = minZ-real(1.122462)*(wallRadius+radiusClosestMin);
     
     auto extWall = std::make_shared<ExternalForces<WCA_Wall>>(pd, pgAll, sys,std::make_shared<WCA_Wall>(wallZ,wallRadius));
     
     //DOWNWARD FORCE 
-	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgVirus, sys,std::make_shared<ConstantForce>(downwardForce));
+	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgAll, sys,std::make_shared<ConstantForce>(downwardForce));
 	
-	//PROBE FORCE
-	std::shared_ptr<ProbeForce> probePot = std::make_shared<ProbeForce>(termStepsProbe,increStepsProbe);
-    auto forcesProbe = std::make_shared<ExternalForces<ProbeForce>>(pd, pgProbe, sys,probePot);
+	////PROBE FORCE
+    
+    probeZ = maxZ + real(1.122462)*(probeRadius+radiusClosestMax) + probeInitHeight;
+    
+	std::shared_ptr<ProbeForce> probePot = std::make_shared<ProbeForce>(probeEpsilon,probeRadius);
+    probePot->setProbePosition({0,0,probeZ});
+    
+    auto forcesProbe = std::make_shared<ExternalForces<ProbeForce>>(pd, pgAll, sys,probePot);
+    
+    //////////////////////////MEASURING/////////////////////////////////
+    
+    auto measuring = std::make_shared<probeMeasuring<ExternalForces<ProbeForce>>>(sys,pd,pgAll,forcesProbe);
     
     ////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////
@@ -581,7 +633,7 @@ int main(int argc, char *argv[]){
 		parTherm.dt = dt;
 		parTherm.viscosity = viscosity;  
 		
-		auto verletTherm = std::make_shared<NVT>(pd, pgVirus, sys,parTherm);
+		auto verletTherm = std::make_shared<NVT>(pd, pgAll, sys,parTherm);
 		
 		verletTherm->addInteractor(bondedforces);
 		verletTherm->addInteractor(gaussianforces);
@@ -589,7 +641,10 @@ int main(int argc, char *argv[]){
 		verletTherm->addInteractor(extWall);
 		verletTherm->addInteractor(downwardForceVirus);
 		
-		outputStateAndWall(out,sys,pd,box,wallZ,wallRadius);
+		outputState_ProbeWall(out,sys,pd,box,
+                              probePot->getProbePosition(),
+                              probePot->getProbeRadius(),
+                              wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
 		
@@ -598,7 +653,10 @@ int main(int argc, char *argv[]){
 		
 			//Write results
 			if(j%printStepsTerm==1){
-				outputStateAndWall(out,sys,pd,box,wallZ,wallRadius);
+				outputState_ProbeWall(out,sys,pd,box,
+                                      probePot->getProbePosition(),
+                                      probePot->getProbeRadius(),
+                                      wallZ,wallRadius);
 			}    
 			
 			if(j%sortSteps == 0){
@@ -611,55 +669,35 @@ int main(int argc, char *argv[]){
     
     //Set probe position
     
-    real2 descentAxis;
-    real3 virusCentroid = {0,0,0};
+    real3 probePosition = {0,0,0};
     
     {
+        maxZ = -INFINITY;
+        
 		auto pos    = pd->getPos(access::location::cpu, access::mode::readwrite);
 		auto radius = pd->getRadius(access::location::cpu, access::mode::readwrite);
-	
-		auto iterVirus = pgVirus->getIndexIterator(access::location::cpu);
-		auto iterProbe = pgProbe->getIndexIterator(access::location::cpu);
+        
+        real3 virusCentroid = {0,0,0};
 		
-		fori(0,pgVirus->getNumberParticles()){
-			virusCentroid += make_real3(pos.raw()[iterVirus[i]]);	
+		fori(0,N){
+			virusCentroid += make_real3(pos.raw()[i]);
+            real z = make_real3(pos.raw()[i]).z;
+            
+            if(z > maxZ){
+				maxZ = z;
+				radiusClosestMax = radius.raw()[i];
+			}
 		}
 		
-		virusCentroid /= pgVirus->getNumberParticles();
-        
-        real3 probeCentroid = {0,0,0};
-		real  probeMinZ = INFINITY;
-        
-		fori(0,pgProbe->getNumberParticles()){
-            probeCentroid += make_real3(pos.raw()[iterProbe[i]]);
-			 if(make_real3(pos.raw()[iterProbe[i]]).z < probeMinZ){
-                 probeMinZ = make_real3(pos.raw()[iterProbe[i]]).z;
-             }
-		}
-        
-        probeCentroid /= pgProbe->getNumberParticles();
+		virusCentroid /= N;
 		
-		//Move probe to {vC.x,vC.y,maxZ+real(0.5)*(probeRadius+radiusClosest)+initialVirusProbeSep}
+		//Move probe to {vC.x,vC.y,maxZ+(probeRadius+radiusClosest)+initialVirusProbeSep}
 		
-		real3 translationVector = { - probeCentroid.x + virusCentroid.x,
-								    - probeCentroid.y + virusCentroid.y,
-								    - probeMinZ       + (maxZ+real(1.122462)*(probeAtomRadius+radiusClosestMax)+initialVirusProbeSep)};
+        probePosition = {virusCentroid.x,virusCentroid.y,maxZ + (probeRadius+radiusClosestMax)+initialVirusProbeSep};
+        probePot->setProbePosition(probePosition);
 		
-		fori(0,pgProbe->getNumberParticles()){
-			
-			pos.raw()[iterProbe[i]].x = pos.raw()[iterProbe[i]].x + translationVector.x;
-			pos.raw()[iterProbe[i]].y = pos.raw()[iterProbe[i]].y + translationVector.y;
-			pos.raw()[iterProbe[i]].z = pos.raw()[iterProbe[i]].z + translationVector.z;
-		
-		}
-		descentAxis = {virusCentroid.x,virusCentroid.y};
-		
-		probePot->setDescentAxis(descentAxis);
 	}
 	
-	outProbe << "# " << descentAxis.x << " " << descentAxis.y << std::endl; 
-	
-	probeMeasuring pM(sys,pd,pgProbe,forcesProbe);
 	
     {
 		NVT::Parameters par;
@@ -675,31 +713,36 @@ int main(int argc, char *argv[]){
 		verlet->addInteractor(extWall);
 		verlet->addInteractor(forcesProbe);
 		
-		outputStateAndWall(out,sys,pd,box,wallZ,wallRadius);
+		outputState_ProbeWall(out,sys,pd,box,
+                              probePot->getProbePosition(),
+                              probePot->getProbeRadius(),
+                              wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
 		
+        int k =0;
 		//Run the simulation
 		forj(0,nsteps){
 			verlet->forwardTime();
-		
-			//Write results
+            
 			if(j%printSteps==1){
-				outputStateAndWall(out,sys,pd,box,wallZ,wallRadius);
+				outputState_ProbeWall(out,sys,pd,box,
+                                      probePot->getProbePosition(),
+                                      probePot->getProbeRadius(),
+                                      wallZ,wallRadius);
 			}
 			
 			if(j%measureSteps == 0){
-				real3 probePos = pM.computeProbePosition();
-				
-				real dx = (descentAxis.x-probePos.x);
-				real dy = (descentAxis.y-probePos.y);
-				
-				real  dstAxis = sqrt(dx*dx+dy*dy);
-				outProbe << probePot->getCurrentForce() << " " << dstAxis << " " << pM.computeProbePosition().z << std::endl;
-				
-				if(pM.computeProbePosition().z < virusCentroid.z){
-					break;
-				}
+                // 1 kj/(mol·nm) = 0.0016605391 nN
+                outProbe << probePot->getProbePosition().z << " " << -measuring->sumForce().z*real(0.0016605391) << std::endl;
+                
+                if(k ==1){
+                    k=-1;
+                    real3 currentProbePosition = probePot->getProbePosition();
+                    probePot->setProbeHeight(currentProbePosition.z-0.1);
+                }
+                k++;
+                
 			}
 			
 			if(j%sortSteps == 0){
@@ -708,8 +751,6 @@ int main(int argc, char *argv[]){
 		}
     
 	}
-	
-	//outProbe << pM << std::endl;
 	
     auto totalTime = tim.toc();
     sys->log<System::MESSAGE>("mean FPS: %.2f", nsteps/totalTime);

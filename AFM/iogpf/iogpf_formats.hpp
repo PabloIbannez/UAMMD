@@ -108,21 +108,37 @@ namespace uammd{
             }
         };
         
-        class planeRadius{
+        /*
+        class XY{
         public:
             void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){
-                real _planeRadius;
-                ss >> _planeRadius;
+                real _XY;
+                ss >> _XY;
                 
-                auto planeRadiusArray = pd->getPlaneRadius(access::location::cpu, access::mode::readwrite);
-                planeRadiusArray.raw()[index] = _planeRadius;
+                auto XYArray = pd->getXY(access::location::cpu, access::mode::readwrite);
+                XYArray.raw()[index] = _XY;
                 
                 #ifdef DEBUG
-                std::cout << " planeRadius[" << index << "]: " << planeRadiusArray.raw()[index] ;
+                std::cout << " XY[" << index << "]: " << XYArray.raw()[index] ;
                 #endif
             }
         };
         
+        class Z{
+        public:
+            void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){
+                real _Z;
+                ss >> _Z;
+                
+                auto ZArray = pd->getZ(access::location::cpu, access::mode::readwrite);
+                ZArray.raw()[index] = _Z;
+                
+                #ifdef DEBUG
+                std::cout << " Z[" << index << "]: " << ZArray.raw()[index] ;
+                #endif
+            }
+        };
+        */
         class pos{
         public:
             void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){
