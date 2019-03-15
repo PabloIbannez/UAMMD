@@ -16,6 +16,10 @@ a.out
 *.pbc
 *.gdr
 *.bak
+*.sp
+*.enm
+*.gaussian
+*.top
 gdrDATA
 bin/*
 kk*

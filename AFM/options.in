@@ -1,0 +1,49 @@
+#System
+
+box 80 80 200
+
+#Particles
+epsilonParticles 1
+cutOffParticles  1.5
+
+#Gaussian
+epsilonGaussian 0.5
+sigmaGaussian 0.5
+
+#Wall
+wallRadius 0.5
+
+#Tip
+tipRadius 20
+tipEpsilon 1
+
+tipInitHeight 30
+initialVirusTipSep 2
+
+#Downward force
+downwardForce -0.01
+
+#Downward
+nstepsDownward 10000
+printStepsDownward 1000
+
+#Thermalization
+nstepsTerm 10000
+printStepsTerm 1000
+
+#Simulation
+nsteps 1000000
+printSteps 10000
+
+#Common
+sortSteps 1000
+
+#Measuring
+descentSteps 1000
+descentDistace 0.1
+measureSteps 1000
+
+#Integrator
+temperature 2.479
+dt 0.01
+viscosity 0.1

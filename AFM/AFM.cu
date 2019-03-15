@@ -6,6 +6,7 @@
 #include "Interactor/PairForces.cuh"
 #include "Interactor/ExternalForces.cuh"
 #include "Interactor/NeighbourList/VerletList.cuh"
+#include "utils/InputFile.h"
 
 #include "AFM_potential.cuh"
 #include "iogpf/iogpf.hpp"
@@ -135,7 +136,7 @@ namespace uammd{
           
           real r = sqrt(r2);
           real dst = r-bi.r0;
-          real fmod = -real(2.0)*(wellDepth/bi.r0)*exp(-dst*dst*invSigma)*dst*invSigma;
+          real fmod = -real(2.0)*wellDepth*exp(-dst*dst*invSigma)*dst*invSigma;
           return fmod*(r12/r);
         }
         
@@ -153,7 +154,7 @@ namespace uammd{
     
           real r = sqrt(r2);
           real dst = r-bi.r0;
-          real energy = -(wellDepth/bi.r0)*exp(-dst*dst*invSigma);
+          real energy = -wellDepth*exp(-dst*dst*invSigma);
           
           return energy;
         }
@@ -175,27 +176,6 @@ namespace uammd{
         }
         };
 }}
-
-class molId_selector{
-		int molId;
-	public:    
-		molId_selector(int molId):molId(molId){}
-
-		bool isSelected(int particleIndex, shared_ptr<ParticleData> &pd){
-			int part_molID = (pd->getMolId(access::cpu, access::read).raw())[particleIndex];
-			return part_molID==molId;
-		}
-};
-
-class molId_selector_positive{
-	
-	public:    
-
-		bool isSelected(int particleIndex, shared_ptr<ParticleData> &pd){
-			int part_molID = (pd->getMolId(access::cpu, access::read).raw())[particleIndex];
-			return part_molID>=0;
-		}
-};
 
 struct WCA_Wall: public ParameterUpdatable{
 	
@@ -252,23 +232,23 @@ struct ConstantForce: public ParameterUpdatable{
 	}
 }; 
 
-struct ProbeForce: public ParameterUpdatable{
+struct TipForce: public ParameterUpdatable{
     
 	
-    real3 probePosition = {0,0,0};
+    real3 tipPosition = {0,0,0};
     
     real  epsilon = 1;
-    real  probeRadius = 20;
+    real  tipRadius = 20;
     
-	ProbeForce(real epsilon,real probeRadius):epsilon(epsilon),probeRadius(probeRadius){}
+	TipForce(real epsilon,real tipRadius):epsilon(epsilon),tipRadius(tipRadius){}
 	
 	__device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
 	    
-        real3 rtp = probePosition-make_real3(pos);
+        real3 rtp = tipPosition-make_real3(pos);
         real  r2 = dot(rtp,rtp);
         real  r  = sqrt(r2);
         
-        real effDiam = probeRadius+radius;
+        real effDiam = tipRadius+radius;
         
         if(r < real(1.122462)*effDiam){
             
@@ -292,24 +272,24 @@ struct ProbeForce: public ParameterUpdatable{
 		return std::make_tuple(pos.raw(),radius.raw());
 	}
     
-    void setProbePosition(real3 newProbePosition){
-        probePosition = newProbePosition;
+    void setTipPosition(real3 newTipPosition){
+        tipPosition = newTipPosition;
     }
     
-    void setProbeHeight(real newHeight){
-        probePosition.z = newHeight;
+    void setTipHeight(real newHeight){
+        tipPosition.z = newHeight;
     }
     
-    real3 getProbePosition(){
-        return probePosition;
+    real3 getTipPosition(){
+        return tipPosition;
     }
     
-    void setProbeRadius(real newProbeRadius){
-        probeRadius = newProbeRadius;
+    void setTipRadius(real newTipRadius){
+        tipRadius = newTipRadius;
     }
     
-    real getProbeRadius(){
-        return probeRadius;
+    real getTipRadius(){
+        return tipRadius;
     }
     
 };
@@ -337,19 +317,19 @@ void outputState(std::ofstream& os,
 	
 }
 
-void outputState_ProbeWall(std::ofstream& os,
+void outputState_TipWall(std::ofstream& os,
                            std::shared_ptr<System> sys,
                            std::shared_ptr<ParticleData> pd,
                            Box box,
-                           real3 probePosition,
-                           real probeRadius,
+                           real3 tipPosition,
+                           real tipRadius,
                            real wallZ,
                            real wallRadius){
 							
 	outputState(os,sys,pd,box);
     
-    os << probePosition                << " " 
-       << real(1.122462)*probeRadius   << " "
+    os << tipPosition                << " " 
+       << real(1.122462)*tipRadius   << " "
        << -1 << std::endl;
 	
 	int  nx = std::ceil(box.boxSize.x/(real(2.0)*wallRadius));
@@ -383,8 +363,8 @@ struct forceFunctor{
     }
 };
 
-template <class probeForce>
-class probeMeasuring{
+template <class tipForce>
+class tipMeasuring{
     
     private:
         
@@ -393,7 +373,7 @@ class probeMeasuring{
         shared_ptr<ParticleData> pd;
         shared_ptr<ParticleGroup> pg;
         
-        shared_ptr<probeForce> probeF;
+        shared_ptr<tipForce> tipF;
         
         cudaStream_t stream;
         
@@ -420,12 +400,12 @@ class probeMeasuring{
     
     public:
     
-        probeMeasuring(shared_ptr<System> sys,
+        tipMeasuring(shared_ptr<System> sys,
                        shared_ptr<ParticleData> pd,
                        shared_ptr<ParticleGroup> pg,
-                       shared_ptr<probeForce> probeF):sys(sys),pd(pd),pg(pg),probeF(probeF){
+                       shared_ptr<tipForce> tipF):sys(sys),pd(pd),pg(pg),tipF(tipF){
           
-          sys->log<System::MESSAGE>("[probeMeasuring] Created.");
+          sys->log<System::MESSAGE>("[tipMeasuring] Created.");
           
           cudaStreamCreate(&stream);
           
@@ -433,9 +413,9 @@ class probeMeasuring{
           this->setUpCubReduction();
         }
         
-        ~probeMeasuring(){
+        ~tipMeasuring(){
           
-            sys->log<System::MESSAGE>("[probeMeasuring] Destroyed.");
+            sys->log<System::MESSAGE>("[tipMeasuring] Destroyed.");
             
             cudaFree(totalForce);
             cudaFree(cubTempStorageSum);
@@ -455,7 +435,7 @@ class probeMeasuring{
                 fillWithGPU<<<Nblocks, Nthreads>>>(force.raw(), groupIterator, make_real4(0), numberParticles);
             }
             
-            probeF->sumForce(stream);
+            tipF->sumForce(stream);
             cudaDeviceSynchronize();
             
             cub::CountingInputIterator<int> countingIterator(0);
@@ -476,31 +456,141 @@ class probeMeasuring{
 using NVT = VerletNVT::GronbechJensen;
 
 int main(int argc, char *argv[]){
-	
-    real probeInitHeight = 30;
-    real initialVirusProbeSep = 3;
-    real probeRadius = 20;
-    real probeEpsilon = 1;
-	real wallRadius = 0.5;
-	real E = 0.1;
-    real sigma = 0.1;
-    real cutOff = 1.5;
-    real epsilon = 1;
-    int nstepsTerm = 10000;
-	int printStepsTerm = 1000;
-	Box box({70.0,70.0,300.0});
-	real downwardForce = 0;
-	int termStepsProbe = 1000;
-	int increStepsProbe = 10000;
-	real temperature = 2.479;
-	real dt = 0.01;
-	real viscosity = 0.1;
-	int sortSteps = 500;
-	int nsteps = 10000000;
-    int printSteps = 10000;
     
-    real probeAtomRadius = 1.5;
-    int measureSteps = 10000;
+    auto sys = std::make_shared<System>();
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    //System
+    
+    Box box;
+    
+    //Particles
+    real epsilonParticles;
+    real cutOffParticles;
+    
+    //Gaussian
+	real epsilonGaussian;
+    real sigmaGaussian;
+    
+    //Wall
+	real wallRadius;
+    
+    //Tip
+    real tipRadius;
+    real tipEpsilon;
+    
+    real tipInitHeight;
+    real initialVirusTipSep;
+    
+    //Downward force
+    real downwardForce;
+    
+    //Downward
+    int nstepsDownward;
+    int printStepsDownward;
+
+    //Thermalization
+    int nstepsTerm;
+	int printStepsTerm;
+    
+    //Simulation
+    int nsteps;
+    int printSteps;
+    
+    //Common
+    int sortSteps;
+    
+    //Measuring
+    int  descentSteps;
+    real descentDistace;
+    int  measureSteps;
+	
+    //Integrator
+	real temperature;
+	real dt;
+	real viscosity;
+    
+    {//Input
+        InputFile inputFile("options.in", sys);
+        
+        if(!(inputFile.getOption("box")>>box.boxSize.x
+                                      >>box.boxSize.y
+                                      >>box.boxSize.z))
+        {sys->log<System::CRITICAL>("Box option has not been introduced properly.");}
+                                  
+        //Particles
+        if(!(inputFile.getOption("epsilonParticles")>>epsilonParticles))
+        {sys->log<System::CRITICAL>("epsilonParticles option has not been introduced properly.");}
+        if(!(inputFile.getOption("cutOffParticles")>>cutOffParticles))
+        {sys->log<System::CRITICAL>("cutOffParticles option has not been introduced properly.");}
+                                                            
+        //Gaussian                                          
+        if(!(inputFile.getOption("epsilonGaussian")>>epsilonGaussian))
+        {sys->log<System::CRITICAL>("epsilonGaussian option has not been introduced properly.");}
+        if(!(inputFile.getOption("sigmaGaussian")>>sigmaGaussian))
+        {sys->log<System::CRITICAL>("sigmaGaussian option has not been introduced properly.");}
+                                                            
+        //Wall                                              
+        if(!(inputFile.getOption("wallRadius")>>wallRadius))
+        {sys->log<System::CRITICAL>("wallRadius option has not been introduced properly.");}
+                                               
+        //Tip                                
+        if(!(inputFile.getOption("tipRadius")>>tipRadius))
+        {sys->log<System::CRITICAL>("tipRadius option has not been introduced properly.");}
+        if(!(inputFile.getOption("tipEpsilon")>>tipEpsilon))
+        {sys->log<System::CRITICAL>("tipEpsilon option has not been introduced properly.");}
+                                                            
+        if(!(inputFile.getOption("tipInitHeight")>>tipInitHeight))
+        {sys->log<System::CRITICAL>("tipInitHeight option has not been introduced properly.");}
+        if(!(inputFile.getOption("initialVirusTipSep")>>initialVirusTipSep))
+        {sys->log<System::CRITICAL>("initialVirusTipSep option has not been introduced properly.");}
+        
+        //Downward force
+        if(!(inputFile.getOption("downwardForce")>>downwardForce))
+        {sys->log<System::CRITICAL>("downwardForce option has not been introduced properly.");}
+
+        //Downward
+        if(!(inputFile.getOption("nstepsDownward")>>nstepsDownward))
+        {sys->log<System::CRITICAL>("nstepsDownward option has not been introduced properly.");}
+        if(!(inputFile.getOption("printStepsDownward")>>printStepsDownward))
+        {sys->log<System::CRITICAL>("printStepsDownward option has not been introduced properly.");}
+        
+        
+        //Thermalization
+        if(!(inputFile.getOption("nstepsTerm")>>nstepsTerm))
+        {sys->log<System::CRITICAL>("nstepsTerm option has not been introduced properly.");}
+        if(!(inputFile.getOption("printStepsTerm")>>printStepsTerm))
+        {sys->log<System::CRITICAL>("printStepsTerm option has not been introduced properly.");}
+        
+        //Simulation
+        if(!(inputFile.getOption("nsteps")>>nsteps))
+        {sys->log<System::CRITICAL>("nsteps option has not been introduced properly.");}
+        if(!(inputFile.getOption("printSteps")>>printSteps))
+        {sys->log<System::CRITICAL>("printSteps option has not been introduced properly.");}
+        
+        //Common
+        if(!(inputFile.getOption("sortSteps")>>sortSteps))
+        {sys->log<System::CRITICAL>("sortSteps option has not been introduced properly.");}
+        
+        //Measuring
+        if(!(inputFile.getOption("measureSteps")>>measureSteps))
+        {sys->log<System::CRITICAL>("measureSteps option has not been introduced properly.");}
+        if(!(inputFile.getOption("descentSteps")>>descentSteps))
+        {sys->log<System::CRITICAL>("descentSteps option has not been introduced properly.");}
+        if(!(inputFile.getOption("descentDistace")>>descentDistace))
+        {sys->log<System::CRITICAL>("descentDistace option has not been introduced properly.");}
+	    
+        //Integrator
+        if(!(inputFile.getOption("temperature")>>temperature))
+        {sys->log<System::CRITICAL>("temperature option has not been introduced properly.");}
+        if(!(inputFile.getOption("dt")>>dt))
+        {sys->log<System::CRITICAL>("dt option has not been introduced properly.");}
+        if(!(inputFile.getOption("viscosity")>>viscosity))
+        {sys->log<System::CRITICAL>("viscosity option has not been introduced properly.");}
+        
+    }
+	
 	
 	////////////////////////////////////////////////////////////////////
     
@@ -509,7 +599,6 @@ int main(int argc, char *argv[]){
     aminoMap.loadAminoAcids("aminoAcidsList.dat");
     aminoMap.applyMap2File("p22.top","p22_P.top");
     
-    auto sys = std::make_shared<System>();
     ullint seed = 0xf31337Bada55D00dULL;
     sys->rng().setSeed(seed);
     
@@ -548,14 +637,14 @@ int main(int argc, char *argv[]){
     GaussianForces::Parameters paramsGF;
     
     paramsGF.file = "p22.gaussian";  
-    BondedType::GaussianPBC gf(box,E,sigma);
+    BondedType::GaussianPBC gf(box,epsilonGaussian,sigmaGaussian);
     auto gaussianforces = std::make_shared<GaussianForces>(pd, sys, paramsGF, gf);
     
     ////////////////////////////////////////////////////////////////////
     
     using PairForces = PairForces<Potential::AFMPotential, CellList>;
     
-    auto pot = std::make_shared<Potential::AFMPotential>(sys,cutOff,epsilon);
+    auto pot = std::make_shared<Potential::AFMPotential>(sys,cutOffParticles,epsilonParticles);
     
     PairForces::Parameters params;
     params.box = box;  //Box to work on
@@ -566,7 +655,7 @@ int main(int argc, char *argv[]){
     
     
     real wallZ;
-    real probeZ;
+    real tipZ;
     
     real minZ =  INFINITY;
     real maxZ = -INFINITY;
@@ -602,16 +691,16 @@ int main(int argc, char *argv[]){
 	
 	////PROBE FORCE
     
-    probeZ = maxZ + real(1.122462)*(probeRadius+radiusClosestMax) + probeInitHeight;
+    tipZ = maxZ + real(1.122462)*(tipRadius+radiusClosestMax) + tipInitHeight;
     
-	std::shared_ptr<ProbeForce> probePot = std::make_shared<ProbeForce>(probeEpsilon,probeRadius);
-    probePot->setProbePosition({0,0,probeZ});
+	std::shared_ptr<TipForce> tipPot = std::make_shared<TipForce>(tipEpsilon,tipRadius);
+    tipPot->setTipPosition({0,0,tipZ});
     
-    auto forcesProbe = std::make_shared<ExternalForces<ProbeForce>>(pd, pgAll, sys,probePot);
+    auto forcesTip = std::make_shared<ExternalForces<TipForce>>(pd, pgAll, sys,tipPot);
     
     //////////////////////////MEASURING/////////////////////////////////
     
-    auto measuring = std::make_shared<probeMeasuring<ExternalForces<ProbeForce>>>(sys,pd,pgAll,forcesProbe);
+    auto measuring = std::make_shared<tipMeasuring<ExternalForces<TipForce>>>(sys,pd,pgAll,forcesTip);
     
     ////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////
@@ -623,7 +712,7 @@ int main(int argc, char *argv[]){
     tim.tic();
     
     std::ofstream out("p22.sp");
-    std::ofstream outProbe("probe.dat");
+    std::ofstream outTip("tip.dat");
     
     ////////////////////////THERMALIZATION//////////////////////////////
     
@@ -641,21 +730,21 @@ int main(int argc, char *argv[]){
 		verletTherm->addInteractor(extWall);
 		verletTherm->addInteractor(downwardForceVirus);
 		
-		outputState_ProbeWall(out,sys,pd,box,
-                              probePot->getProbePosition(),
-                              probePot->getProbeRadius(),
+		outputState_TipWall(out,sys,pd,box,
+                              tipPot->getTipPosition(),
+                              tipPot->getTipRadius(),
                               wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
 		
-		forj(0,nstepsTerm){
+		forj(0,nstepsDownward){
 			verletTherm->forwardTime();
 		
 			//Write results
-			if(j%printStepsTerm==1){
-				outputState_ProbeWall(out,sys,pd,box,
-                                      probePot->getProbePosition(),
-                                      probePot->getProbeRadius(),
+			if(j%printStepsDownward==1){
+				outputState_TipWall(out,sys,pd,box,
+                                      tipPot->getTipPosition(),
+                                      tipPot->getTipRadius(),
                                       wallZ,wallRadius);
 			}    
 			
@@ -667,9 +756,9 @@ int main(int argc, char *argv[]){
 	
     ////////////////////////////RUN/////////////////////////////////////
     
-    //Set probe position
+    //Set tip position
     
-    real3 probePosition = {0,0,0};
+    real3 tipPosition = {0,0,0};
     
     {
         maxZ = -INFINITY;
@@ -691,10 +780,10 @@ int main(int argc, char *argv[]){
 		
 		virusCentroid /= N;
 		
-		//Move probe to {vC.x,vC.y,maxZ+(probeRadius+radiusClosest)+initialVirusProbeSep}
+		//Move tip to {vC.x,vC.y,maxZ+(tipRadius+radiusClosest)+initialVirusTipSep}
 		
-        probePosition = {virusCentroid.x,virusCentroid.y,maxZ + (probeRadius+radiusClosestMax)+initialVirusProbeSep};
-        probePot->setProbePosition(probePosition);
+        tipPosition = {virusCentroid.x,virusCentroid.y,maxZ + (tipRadius+radiusClosestMax)+initialVirusTipSep};
+        tipPot->setTipPosition(tipPosition);
 		
 	}
 	
@@ -711,39 +800,53 @@ int main(int argc, char *argv[]){
 		verlet->addInteractor(gaussianforces);
 		verlet->addInteractor(pairforces);
 		verlet->addInteractor(extWall);
-		verlet->addInteractor(forcesProbe);
+		verlet->addInteractor(forcesTip);
 		
-		outputState_ProbeWall(out,sys,pd,box,
-                              probePot->getProbePosition(),
-                              probePot->getProbeRadius(),
+		outputState_TipWall(out,sys,pd,box,
+                              tipPot->getTipPosition(),
+                              tipPot->getTipRadius(),
                               wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
+        
+        //Thermalization
+        forj(0,nstepsTerm){
+			verlet->forwardTime();
 		
-        int k =0;
+			//Write results
+			if(j%printStepsTerm==1){
+				outputState_TipWall(out,sys,pd,box,
+                                    tipPot->getTipPosition(),
+                                    tipPot->getTipRadius(),
+                                    wallZ,wallRadius);
+			}    
+			
+			if(j%sortSteps == 0){
+				pd->sortParticles();
+			}
+		}
+		
 		//Run the simulation
 		forj(0,nsteps){
 			verlet->forwardTime();
             
 			if(j%printSteps==1){
-				outputState_ProbeWall(out,sys,pd,box,
-                                      probePot->getProbePosition(),
-                                      probePot->getProbeRadius(),
+				outputState_TipWall(out,sys,pd,box,
+                                      tipPot->getTipPosition(),
+                                      tipPot->getTipRadius(),
                                       wallZ,wallRadius);
 			}
 			
 			if(j%measureSteps == 0){
                 // 1 kj/(mol·nm) = 0.0016605391 nN
-                outProbe << probePot->getProbePosition().z << " " << -measuring->sumForce().z*real(0.0016605391) << std::endl;
-                
-                if(k ==1){
-                    k=-1;
-                    real3 currentProbePosition = probePot->getProbePosition();
-                    probePot->setProbeHeight(currentProbePosition.z-0.1);
-                }
-                k++;
-                
-			}
+                outTip << tipPot->getTipPosition().z << " " << -measuring->sumForce().z*real(0.0016605391) << std::endl;
+            }
+            
+            if(j%descentSteps == 0){
+                real3 currentTipPosition = tipPot->getTipPosition();
+                tipPot->setTipHeight(currentTipPosition.z-descentDistace);
+            }
+            
 			
 			if(j%sortSteps == 0){
 				pd->sortParticles();
