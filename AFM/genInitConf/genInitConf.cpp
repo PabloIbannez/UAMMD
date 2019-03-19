@@ -37,8 +37,6 @@ struct clash{
 
 int main(){
     
-    real K = 2000;
-    
     real rCut_ENM = 1;
     real rCut_BOND = 1.5;
     
@@ -290,7 +288,6 @@ int main(){
                     enmFile << std::setw(10) << atomVector[i].serial <<
                                std::setw(10) << atomVector[j].serial <<
                                std::setprecision(6)                  <<
-                               std::setw(12) << K                    <<
                                std::setw(12) << r                    << std::endl;
                                
                     ENM_counter++;

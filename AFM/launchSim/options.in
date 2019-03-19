@@ -1,14 +1,16 @@
 #System
-
 box 80 80 200
 
 #Particles
 epsilonParticles 1
-cutOffParticles  1.5
+cutOffParticles  1.6
+
+#ENM
+k 1000
 
 #Gaussian
-epsilonGaussian 0.5
-sigmaGaussian 0.5
+epsilonGaussian 0.1
+sigmaGaussian 5.0
 
 #Wall
 wallRadius 0.5
@@ -32,16 +34,17 @@ nstepsTerm 10000
 printStepsTerm 1000
 
 #Simulation
-nsteps 1000000
+nsteps 10000000
 printSteps 10000
 
 #Common
 sortSteps 1000
 
 #Measuring
-descentSteps 1000
+descentSteps 10000
 descentDistace 0.1
 measureSteps 1000
+maxIndentation 30.0
 
 #Integrator
 temperature 2.479

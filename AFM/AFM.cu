@@ -117,7 +117,58 @@ class aminoAcidMap{
 
 namespace uammd{
 
-  namespace BondedType{
+    namespace BondedType{
+      
+    struct ENM{
+        
+        real k;
+    
+        struct BondInfo{
+            real r0;
+        };
+        
+        ENM(real k):k(k){}
+    
+        inline __device__ real3 force(int i, int j, const real3 &r12, const BondInfo &bi){
+            real r2 = dot(r12, r12);
+            if(r2==real(0.0)) return make_real3(0.0);
+            
+            real invr = rsqrt(r2);
+            real f = -k*(real(1.0)-bi.r0*invr); //F = -k·(r-r0)·rvec/r
+            return f*r12;
+        }
+    
+        static __host__ BondInfo readBond(std::istream &in){
+            BondInfo bi;
+            in>>bi.r0;
+            return bi;
+        }
+    
+        inline __device__ real energy(int i, int j, const real3 &r12, const BondInfo &bi){
+            real r2 = dot(r12, r12);
+            if(r2==real(0.0)) return real(0.0);
+    
+            real invr = rsqrt(r2);
+            const real dr = real(1.0)-bi.r0*invr;
+            
+            return real(0.5)*k*dr*dr;
+        }
+    
+    };
+
+    struct ENM_PBC: public ENM{
+        Box box;
+        
+        ENM_PBC(Box box,real k): box(box),ENM(k){}
+        
+        inline __device__ real3 force(int i, int j, const real3 &r12, const BondInfo &bi){
+            return ENM::force(i, j, box.apply_pbc(r12), bi);
+        }
+    
+        inline __device__ real energy(int i, int j, const real3 &r12, const BondInfo &bi){
+          return ENM::energy(i, j, box.apply_pbc(r12), bi);
+        }
+    };
       
     struct Gaussian{
         
@@ -469,6 +520,9 @@ int main(int argc, char *argv[]){
     real epsilonParticles;
     real cutOffParticles;
     
+    //ENM
+    real k;
+    
     //Gaussian
 	real epsilonGaussian;
     real sigmaGaussian;
@@ -505,6 +559,7 @@ int main(int argc, char *argv[]){
     int  descentSteps;
     real descentDistace;
     int  measureSteps;
+    real maxIndentation;
 	
     //Integrator
 	real temperature;
@@ -524,7 +579,11 @@ int main(int argc, char *argv[]){
         {sys->log<System::CRITICAL>("epsilonParticles option has not been introduced properly.");}
         if(!(inputFile.getOption("cutOffParticles")>>cutOffParticles))
         {sys->log<System::CRITICAL>("cutOffParticles option has not been introduced properly.");}
-                                                            
+        
+        //ENM
+        if(!(inputFile.getOption("k")>>k))
+        {sys->log<System::CRITICAL>("k option has not been introduced properly.");}
+        
         //Gaussian                                          
         if(!(inputFile.getOption("epsilonGaussian")>>epsilonGaussian))
         {sys->log<System::CRITICAL>("epsilonGaussian option has not been introduced properly.");}
@@ -580,6 +639,8 @@ int main(int argc, char *argv[]){
         {sys->log<System::CRITICAL>("descentSteps option has not been introduced properly.");}
         if(!(inputFile.getOption("descentDistace")>>descentDistace))
         {sys->log<System::CRITICAL>("descentDistace option has not been introduced properly.");}
+        if(!(inputFile.getOption("maxIndentation")>>maxIndentation))
+        {sys->log<System::CRITICAL>("maxIndentation option has not been introduced properly.");}
 	    
         //Integrator
         if(!(inputFile.getOption("temperature")>>temperature))
@@ -590,7 +651,18 @@ int main(int argc, char *argv[]){
         {sys->log<System::CRITICAL>("viscosity option has not been introduced properly.");}
         
     }
+    
+    /////////////////////////OUTPUT FILES///////////////////////////////
 	
+    std::stringstream ss;
+    
+    ss << "p22_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".sp";
+    std::ofstream outState(ss.str());
+    
+    ss.str("");
+    ss.clear();
+    ss << "tip_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".dat";
+    std::ofstream outTip(ss.str());
 	
 	////////////////////////////////////////////////////////////////////
     
@@ -622,12 +694,12 @@ int main(int argc, char *argv[]){
     /////////////////////INTERNAL INTERACTORS///////////////////////////
     ////////////////////////////////////////////////////////////////////
     
-    using ENM = BondedForces<BondedType::HarmonicPBC>;
+    using ENM = BondedForces<BondedType::ENM_PBC>;
 
     ENM::Parameters paramsENM;
     
     paramsENM.file = "p22.enm"; 
-    BondedType::HarmonicPBC enm(box);
+    BondedType::ENM_PBC enm(box,k);
     auto bondedforces = std::make_shared<ENM>(pd, sys, paramsENM, enm);
     
     ////////////////////////////////////////////////////////////////////
@@ -711,9 +783,6 @@ int main(int argc, char *argv[]){
     Timer tim;
     tim.tic();
     
-    std::ofstream out("p22.sp");
-    std::ofstream outTip("tip.dat");
-    
     ////////////////////////THERMALIZATION//////////////////////////////
     
     {
@@ -730,7 +799,7 @@ int main(int argc, char *argv[]){
 		verletTherm->addInteractor(extWall);
 		verletTherm->addInteractor(downwardForceVirus);
 		
-		outputState_TipWall(out,sys,pd,box,
+		outputState_TipWall(outState,sys,pd,box,
                               tipPot->getTipPosition(),
                               tipPot->getTipRadius(),
                               wallZ,wallRadius);
@@ -742,7 +811,7 @@ int main(int argc, char *argv[]){
 		
 			//Write results
 			if(j%printStepsDownward==1){
-				outputState_TipWall(out,sys,pd,box,
+				outputState_TipWall(outState,sys,pd,box,
                                       tipPot->getTipPosition(),
                                       tipPot->getTipRadius(),
                                       wallZ,wallRadius);
@@ -802,7 +871,7 @@ int main(int argc, char *argv[]){
 		verlet->addInteractor(extWall);
 		verlet->addInteractor(forcesTip);
 		
-		outputState_TipWall(out,sys,pd,box,
+		outputState_TipWall(outState,sys,pd,box,
                               tipPot->getTipPosition(),
                               tipPot->getTipRadius(),
                               wallZ,wallRadius);
@@ -815,7 +884,7 @@ int main(int argc, char *argv[]){
 		
 			//Write results
 			if(j%printStepsTerm==1){
-				outputState_TipWall(out,sys,pd,box,
+				outputState_TipWall(outState,sys,pd,box,
                                     tipPot->getTipPosition(),
                                     tipPot->getTipRadius(),
                                     wallZ,wallRadius);
@@ -831,7 +900,7 @@ int main(int argc, char *argv[]){
 			verlet->forwardTime();
             
 			if(j%printSteps==1){
-				outputState_TipWall(out,sys,pd,box,
+				outputState_TipWall(outState,sys,pd,box,
                                       tipPot->getTipPosition(),
                                       tipPot->getTipRadius(),
                                       wallZ,wallRadius);
@@ -845,6 +914,8 @@ int main(int argc, char *argv[]){
             if(j%descentSteps == 0){
                 real3 currentTipPosition = tipPot->getTipPosition();
                 tipPot->setTipHeight(currentTipPosition.z-descentDistace);
+                
+                if(currentTipPosition.z < maxIndentation){break;}
             }
             
 			
