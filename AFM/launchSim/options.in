@@ -14,6 +14,7 @@ sigmaGaussian 5.0
 
 #Wall
 wallRadius 0.5
+wallEpsilon 1
 
 #Tip
 tipRadius 20

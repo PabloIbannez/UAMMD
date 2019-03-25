@@ -228,14 +228,14 @@ namespace uammd{
         };
 }}
 
-struct WCA_Wall: public ParameterUpdatable{
+struct wall: public ParameterUpdatable{
 	
 	real zwall;
 	
 	real wallRadius;
-	real epsilon = 1;
+	real wallEpsilon;
 	
-	WCA_Wall(real zwall,real wallRadius):zwall(zwall),wallRadius(wallRadius){}
+	wall(real zwall,real wallRadius, real wallEpsilon):zwall(zwall),wallRadius(wallRadius),wallEpsilon(wallEpsilon){}
 	
 	__device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
 	
@@ -253,7 +253,7 @@ struct WCA_Wall: public ParameterUpdatable{
 			
 			return {real(0),
 					real(0),
-					real(4*6)*epsilon*(real(2)*Dinvz12-Dinvz6)*((pos.z-zwall)/z)};
+					real(4*6)*wallEpsilon*(real(2)*Dinvz12-Dinvz6)*((pos.z-zwall)/z)};
 		}
 	
 	}
@@ -529,6 +529,7 @@ int main(int argc, char *argv[]){
     
     //Wall
 	real wallRadius;
+    real wallEpsilon;
     
     //Tip
     real tipRadius;
@@ -593,6 +594,8 @@ int main(int argc, char *argv[]){
         //Wall                                              
         if(!(inputFile.getOption("wallRadius")>>wallRadius))
         {sys->log<System::CRITICAL>("wallRadius option has not been introduced properly.");}
+        if(!(inputFile.getOption("wallEpsilon")>>wallEpsilon))
+        {sys->log<System::CRITICAL>("wallEpsilon option has not been introduced properly.");}
                                                
         //Tip                                
         if(!(inputFile.getOption("tipRadius")>>tipRadius))
@@ -756,7 +759,7 @@ int main(int argc, char *argv[]){
 	
 	wallZ = minZ-real(1.122462)*(wallRadius+radiusClosestMin);
     
-    auto extWall = std::make_shared<ExternalForces<WCA_Wall>>(pd, pgAll, sys,std::make_shared<WCA_Wall>(wallZ,wallRadius));
+    auto extWall = std::make_shared<ExternalForces<wall>>(pd, pgAll, sys,std::make_shared<wall>(wallZ,wallRadius,wallEpsilon));
     
     //DOWNWARD FORCE 
 	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgAll, sys,std::make_shared<ConstantForce>(downwardForce));
