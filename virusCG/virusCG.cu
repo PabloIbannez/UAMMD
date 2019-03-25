@@ -9,10 +9,140 @@
 #include "Interactor/ExternalForces.cuh"
 #include "Interactor/NBodyForces.cuh"
 
+#include "third_party/cub/cub.cuh"
+
 #include <fstream>
 
 using namespace uammd;
 using namespace std;
+
+struct forceFunctor{
+    ParticleGroup::IndexIterator groupIterator;
+    
+    real4* force;
+    
+    forceFunctor(ParticleGroup::IndexIterator groupIterator,real4* force):groupIterator(groupIterator),force(force){}
+    
+    __host__ __device__ __forceinline__
+    real3 operator()(const int &index) const {
+    
+        int i = groupIterator[index];
+        return make_real3(force[i]); 
+    }
+};
+
+class pressureMeasuring{
+    
+    private:
+        
+        shared_ptr<System> sys;
+        
+        shared_ptr<ParticleData> pd;
+        shared_ptr<ParticleGroup> pg;
+        
+        std::vector<shared_ptr<Interactor>> interactors;
+        
+        cudaStream_t stream;
+        
+        //cub reduction variables
+        real3*   totalForce;
+        void*    cubTempStorageSum = NULL;
+        size_t   cubTempStorageSizeSum = 0;
+        
+        void setUpCubReduction(){
+            
+            //common
+            cub::CountingInputIterator<int> countingIterator(0);
+            auto groupIterator = pg->getIndexIterator(access::location::gpu);
+            
+            //force
+            auto force = pd->getForce(access::location::gpu, access::mode::read);
+            forceFunctor fF(groupIterator,force.raw());
+        
+            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            cudaMalloc(&cubTempStorageSum, cubTempStorageSizeSum);
+        }
+    
+    public:
+    
+        pressureMeasuring(shared_ptr<System> sys,
+                          shared_ptr<ParticleData> pd,
+                          shared_ptr<ParticleGroup> pg):sys(sys),pd(pd),pg(pg){
+          
+            sys->log<System::MESSAGE>("[pressureMeasuring] Created.");
+            
+            cudaStreamCreate(&stream);
+            
+            cudaMallocManaged((void**)&totalForce,sizeof(real3));
+            this->setUpCubReduction();
+        }
+        
+        ~pressureMeasuring(){
+          
+            sys->log<System::MESSAGE>("[pressureMeasuring] Destroyed.");
+            
+            cudaFree(totalForce);
+            cudaFree(cubTempStorageSum);
+            cudaStreamDestroy(stream);
+        }
+        
+        void addInteractor(shared_ptr<Interactor> an_interactor){
+            interactors.emplace_back(an_interactor);      
+        }
+    
+        real3 sumForce(){
+          
+            int numberParticles = pg->getNumberParticles();
+            auto groupIterator = pg->getIndexIterator(access::location::gpu);
+            
+            int Nthreads=128;
+            int Nblocks=numberParticles/Nthreads + ((numberParticles%Nthreads)?1:0);
+            
+            {
+                auto force = pd->getForce(access::location::gpu, access::mode::readwrite);
+                fillWithGPU<<<Nblocks, Nthreads>>>(force.raw(), groupIterator, make_real4(0), numberParticles);
+            }
+            
+            for(auto forceComp: interactors) forceComp->sumForce(stream);
+            cudaDeviceSynchronize();
+            
+            cub::CountingInputIterator<int> countingIterator(0);
+            
+            //force
+            auto force = pd->getForce(access::location::gpu, access::mode::read);
+            forceFunctor fF(groupIterator,force.raw());
+            
+            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            cudaStreamSynchronize(stream);
+            
+            return *totalForce;
+        }
+};
+
+double ndOrderEquationPositive(double a,double b,double c){
+    return (-b+std::sqrt(b*b-double(4*a*c)))/double(2*a);
+}
+
+template<int niter>
+double computeRadiusXY(real area,real radiusZ){
+    
+    double p = 1.6075;
+    
+    double radiusXY = ndOrderEquationPositive(1.0,2.0*std::pow(radiusZ,p),-3.0*std::pow(area/(4.0*M_PI),p));
+           radiusXY = std::pow(radiusXY,1.0/p);
+    double epsilon;
+    
+    for(int i=0;i<niter;i++){
+        epsilon  = 1.0-std::pow(radiusXY/radiusZ,int(2));
+        radiusXY = std::sqrt((1.0/(2.0*M_PI))*(area-M_PI*(radiusZ*radiusZ/epsilon)*std::log((1.0+epsilon)/(1.0-epsilon))));
+    }
+    
+    return radiusXY;
+}
 
 struct Capsid: public ParameterUpdatable{
     
@@ -22,8 +152,10 @@ struct Capsid: public ParameterUpdatable{
     real radius2_Z;
     real radius2_XY;
     
+    real area;
+    
     Capsid(real epsilon, real alphaCut ,real radius):epsilon(epsilon),alphaCut(alphaCut),
-                                                     radius2_Z(radius*radius),radius2_XY(radius*radius){}
+                                                     radius2_Z(radius*radius),radius2_XY(radius*radius),area(4.0*M_PI*radius*radius){}
 
     __device__ __forceinline__ real3 force(const real4 &pos){
         
@@ -65,10 +197,25 @@ struct Capsid: public ParameterUpdatable{
         auto pos = pd->getPos(access::location::gpu, access::mode::read);
         return std::make_tuple(pos.raw());
     }
+    
+    real getRadiusZ(){
+        return std::sqrt(radius2_Z);
+    }
+    
+    real getRadiusXY(){
+        return std::sqrt(radius2_XY);
+    }
+    
+    void setRadiusZ(real newHeight){
+        radius2_Z  = newHeight*newHeight;
+        radius2_XY = computeRadiusXY<100>(area,newHeight);
+        radius2_XY = radius2_XY*radius2_XY;
+    }
   
 };
 
 struct potentialFunctor{
+    
     struct InputPairParameters{
         real cutOff;
         real diam;
@@ -152,7 +299,7 @@ using potential    = Potential::Radial<potentialFunctor>;
 using pairforces   = PairForces<potential>;
 using nbodyforces  = NBodyForces<potential>;
 
-void outputState(shared_ptr<System> sys,shared_ptr<ParticleData> pd,std::ostream& out){
+void outputState(shared_ptr<System> sys,shared_ptr<ParticleData> pd,std::ostream& out,real radiusZ, real radiusXY){
     sys->log<System::DEBUG1>("[System] Writing to disk...");
     
     auto pos = pd->getPos(access::location::cpu, access::mode::read).raw();
@@ -171,10 +318,17 @@ void outputState(shared_ptr<System> sys,shared_ptr<ParticleData> pd,std::ostream
         
         out<<pPos<<" "<<radius<<" "<<type<<endl;
     }
+    
+    out<<real3({0,0,  radiusZ})<<" "<<1<<" "<<3<<endl;
+    out<<real3({0,0, -radiusZ})<<" "<<1<<" "<<3<<endl;
+    out<<real3({ radiusXY,0,0})<<" "<<1<<" "<<5<<endl;
+    out<<real3({-radiusXY,0,0})<<" "<<1<<" "<<5<<endl;
+    out<<real3({0, radiusXY,0})<<" "<<1<<" "<<5<<endl;
+    out<<real3({0,-radiusXY,0})<<" "<<1<<" "<<5<<endl;
 }
 
 int main(int argc, char *argv[]){
-
+    
     int  N = 200;
     Box  box({100,100,100});
     
@@ -202,7 +356,14 @@ int main(int argc, char *argv[]){
     int nSteps     = 10000000;
     int printSteps = 10000;
     
-    ofstream out("state.sp");
+    int sortSteps  = 1000;
+    
+    int decreaseSteps  = 10000;
+    
+    int measuringSteps = 1000;
+    
+    ofstream outState("state.sp");
+    ofstream outMeasured("measured.dat");
     
     //////////////////////////////////////////////////////////////////////
     
@@ -256,6 +417,10 @@ int main(int argc, char *argv[]){
     }
     
     auto pg = make_shared<ParticleGroup>(pd, sys, "All");
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    auto pM = make_shared<pressureMeasuring>(sys,pd,pg);
     
     ////////////////////////////////////////////////////////////////////
     
@@ -328,7 +493,10 @@ int main(int argc, char *argv[]){
     gj->addInteractor(capsidForce);
     gj->addInteractor(partForces);
     
-    outputState(sys,pd,out);
+    pM->addInteractor(capsidForce);
+    pM->addInteractor(partForces);
+    
+    outputState(sys,pd,outState,capsidPot->getRadiusZ(),capsidPot->getRadiusXY());
     
     ////////////////////////////////////////////////////////////////////
     
@@ -346,9 +514,21 @@ int main(int argc, char *argv[]){
     
         if(j%printSteps ==0) {
             sys->log<System::MESSAGE>("Progress: %.3f%%",100.0*(real(j)/nSteps));
-            outputState(sys,pd,out);
+            outputState(sys,pd,outState,capsidPot->getRadiusZ(),capsidPot->getRadiusXY());
         }
-        //if(j%sotSteps   == 0){ pd->sortParticles(); }
+        
+        if(j%measuringSteps ==0) {
+            sys->log<System::MESSAGE>("Measuting ...");
+            outMeasured << capsidPot->getRadiusZ() << " " << pM->sumForce().z << std::endl;
+        }
+        
+        if(j%decreaseSteps ==0) {
+            sys->log<System::MESSAGE>("Decreasing radius z ...");
+            capsidPot->setRadiusZ(capsidPot->getRadiusZ()-0.005);
+            sys->log<System::MESSAGE>("New radii: %f (XY) %f (Z)",capsidPot->getRadiusXY(),capsidPot->getRadiusZ());
+        }
+        
+        if(j%sortSteps   == 0){ pd->sortParticles(); }
     }
     
     auto totalTime = tim.toc();
