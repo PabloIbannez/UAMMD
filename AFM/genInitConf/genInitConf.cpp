@@ -35,7 +35,15 @@ struct clash{
 };
 
 
-int main(){
+int main(int argc, char *argv[]){
+    
+    std::string inputFileName = argv[1];
+    std::string outputName    = argv[2];
+    
+    std::string outputTopName      = outputName + std::string(".top");
+    std::string outputSpName       = outputName + std::string(".sp");
+    std::string outputENMName      = outputName + std::string(".enm");
+    std::string outputGaussianName = outputName + std::string(".gaussian");
     
     real rCut_ENM = 1;
     real rCut_BOND = 1.5;
@@ -43,8 +51,7 @@ int main(){
     STRUCTURE pdbInput;
     //STRUCTURE pdbOutput;
     
-    pdbInput.loadPDB("2xyzSep.pdb");
-    //pdbInput.loadPDB("p22Test.pdb");
+    pdbInput.loadPDB(inputFileName);
     pdbInput.renumber();
     
     real3 center = computeCentroid(pdbInput);
@@ -57,6 +64,15 @@ int main(){
     //cg.loadCGmodel("./RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","./RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
     //
     //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    for(MODEL&   mdl : pdbInput.model()){
+    for(CHAIN&   ch  : mdl.chain()  ){
+    for(RESIDUE& res : ch.residue() ){
+    for(ATOM&    atm : res.atom()   ){
+        atm.setAtomName(res.getResName());
+    }}}}
     
     ////////////////////////////////////////////////////////////////////
     
@@ -249,8 +265,8 @@ int main(){
     
     */
     
-    std::ofstream enmFile("p22.enm");
-    std::ofstream bondFile("p22.gaussian");
+    std::ofstream enmFile(outputENMName);
+    std::ofstream bondFile(outputGaussianName);
     
     int removedParticles_counter = 0;
     int atomCount = 0;
@@ -314,7 +330,7 @@ int main(){
     
     ////////////////////////////////////////////////////////////////////
     
-    std::ofstream topFile("p22.top");
+    std::ofstream topFile(outputTopName);
     
     
     for(atomType&  atm : atomVector){
@@ -337,7 +353,7 @@ int main(){
         atomCount ++;
     }
     
-    std::ofstream spFile("p22.sp");
+    std::ofstream spFile(outputSpName);
     
     for(atomType&  atm : atomVector){
         spFile  << std::right
@@ -358,13 +374,13 @@ int main(){
     int status;
     std::stringstream ss;
     
-    ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' p22.enm";
+    ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
     ss.clear();
     ss.str(std::string());
-    ss << "sed -i \'1s/^/" << Gaussian_counter <<"\\n/\' p22.gaussian";
+    ss << "sed -i \'1s/^/" << Gaussian_counter <<"\\n/\' "<< outputGaussianName;
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     

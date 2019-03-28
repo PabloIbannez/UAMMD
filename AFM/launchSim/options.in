@@ -27,7 +27,7 @@ initialVirusTipSep 2
 downwardForce -0.01
 
 #Downward
-nstepsDownward 10000
+nstepsDownward 1000
 printStepsDownward 1000
 
 #Thermalization
@@ -36,15 +36,15 @@ printStepsTerm 1000
 
 #Simulation
 nsteps 10000000
-printSteps 10000
+printSteps 1000
 
 #Common
 sortSteps 1000
 
 #Measuring
-descentSteps 10000
+descentSteps 1000
 descentDistace 0.1
-measureSteps 1000
+measureSteps 100
 maxIndentation 30.0
 
 #Integrator

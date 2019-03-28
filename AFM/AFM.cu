@@ -512,6 +512,19 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
+    //Input
+    
+    if(argc != 6){
+        sys->log<System::CRITICAL>("Input error, expected arguments are: *.top *.enm *.gaussian *.in outputName");
+    }
+    
+    std::string inputTop      = argv[1];
+    std::string inputENM      = argv[2];
+    std::string inputGaussian = argv[3];
+    std::string inputOptions  = argv[4];
+    
+    std::string outputName    = argv[5];
+    
     //System
     
     Box box;
@@ -565,10 +578,10 @@ int main(int argc, char *argv[]){
     //Integrator
 	real temperature;
 	real dt;
-	real viscosity;
+	real viscosity; //gamma = 6*pi*viscosity*radius
     
     {//Input
-        InputFile inputFile("options.in", sys);
+        InputFile inputFile(inputOptions, sys);
         
         if(!(inputFile.getOption("box")>>box.boxSize.x
                                       >>box.boxSize.y
@@ -659,12 +672,12 @@ int main(int argc, char *argv[]){
 	
     std::stringstream ss;
     
-    ss << "p22_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".sp";
+    ss << outputName << "_state_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".sp";
     std::ofstream outState(ss.str());
     
     ss.str("");
     ss.clear();
-    ss << "tip_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".dat";
+    ss << outputName << "_tip_k_" << k << "_e_" << epsilonGaussian << "_s_" << sigmaGaussian << ".dat";
     std::ofstream outTip(ss.str());
 	
 	////////////////////////////////////////////////////////////////////
@@ -672,7 +685,7 @@ int main(int argc, char *argv[]){
     aminoAcidMap aminoMap;
     
     aminoMap.loadAminoAcids("aminoAcidsList.dat");
-    aminoMap.applyMap2File("p22.top","p22_P.top");
+    aminoMap.applyMap2File(inputTop,inputTop + std::string("P"));
     
     ullint seed = 0xf31337Bada55D00dULL;
     sys->rng().setSeed(seed);
@@ -685,7 +698,7 @@ int main(int argc, char *argv[]){
                           iogpf::molId,
                           iogpf::mass,
                           iogpf::radius,
-                          iogpf::pos>(sys,"p22_P.top");
+                          iogpf::pos>(sys,inputTop + std::string("P"));
                           
     int N = pd->getNumParticles();
     
@@ -701,7 +714,7 @@ int main(int argc, char *argv[]){
 
     ENM::Parameters paramsENM;
     
-    paramsENM.file = "p22.enm"; 
+    paramsENM.file = inputENM; 
     BondedType::ENM_PBC enm(box,k);
     auto bondedforces = std::make_shared<ENM>(pd, sys, paramsENM, enm);
     
@@ -711,7 +724,7 @@ int main(int argc, char *argv[]){
 
     GaussianForces::Parameters paramsGF;
     
-    paramsGF.file = "p22.gaussian";  
+    paramsGF.file = inputGaussian;  
     BondedType::GaussianPBC gf(box,epsilonGaussian,sigmaGaussian);
     auto gaussianforces = std::make_shared<GaussianForces>(pd, sys, paramsGF, gf);
     
