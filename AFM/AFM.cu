@@ -283,6 +283,83 @@ struct ConstantForce: public ParameterUpdatable{
 	}
 }; 
 
+struct TipForceEllipsoid: public ParameterUpdatable{
+    
+    real3 tipPosition = {0,0,0}; // Position of the sphere tip (not ellipsoid)
+                                 // Elipsoid position Z = tipPosition.z + majorRadius - tipRadius
+    
+    real  epsilon    = 1;
+    real  tipRadius  = 20;
+    
+    real alphaCut    = 1.2;
+    
+    real majorRadius = 150; // +- two time virus size
+    real minorRadius;
+    
+    real majorRadius2;
+    real minorRadius2;
+    
+    TipForceEllipsoid(real epsilon,real tipRadius):epsilon(epsilon),tipRadius(tipRadius){
+        minorRadius = std::sqrt(tipRadius*majorRadius);
+        
+        majorRadius2 = majorRadius*majorRadius;
+        minorRadius2 = minorRadius*minorRadius;
+    }
+    
+    __device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
+        
+        real3 ellipsoidPosition = {tipPosition.x,
+                                   tipPosition.y,
+                                   tipPosition.z + majorRadius - tipRadius};
+        
+        real alpha = (pos.x-ellipsoidPosition.x)*(pos.x-ellipsoidPosition.x)/(minorRadius2)+
+                     (pos.y-ellipsoidPosition.y)*(pos.y-ellipsoidPosition.y)/(minorRadius2)+
+                     (pos.z-ellipsoidPosition.z)*(pos.z-ellipsoidPosition.z)/(majorRadius2);
+        
+        if(alpha < alphaCut){
+            
+            real fmod = (real(1)-alpha)*(real(1)-alpha);
+                 fmod =  epsilon/fmod;
+                 
+            return make_real3(fmod*real(2.0*(pos.x-ellipsoidPosition.x)/minorRadius2),
+                              fmod*real(2.0*(pos.y-ellipsoidPosition.y)/minorRadius2),
+                              fmod*real(2.0*(pos.z-ellipsoidPosition.z)/majorRadius2));
+            
+        } else {
+            return make_real3(0.0f);
+        }
+	}
+	
+	std::tuple<const real4 *,const real *> getArrays(ParticleData *pd){
+		auto pos    = pd->getPos(access::location::gpu, access::mode::read);
+		auto radius = pd->getRadius(access::location::gpu, access::mode::read);
+		return std::make_tuple(pos.raw(),radius.raw());
+	}
+    
+    void setTipPosition(real3 newTipPosition){
+        tipPosition = newTipPosition;
+    }
+    
+    void setTipHeight(real newHeight){
+        tipPosition.z = newHeight;
+    }
+    
+    real3 getTipPosition(){
+        return tipPosition;
+    }
+    
+    void setTipRadius(real newTipRadius){
+        tipRadius = newTipRadius;
+        minorRadius  = std::sqrt(tipRadius*majorRadius);
+        minorRadius2 = minorRadius*minorRadius;
+    }
+    
+    real getTipRadius(){
+        return tipRadius;
+    }
+    
+};
+
 struct TipForce: public ParameterUpdatable{
     
 	
@@ -526,7 +603,6 @@ int main(int argc, char *argv[]){
     std::string outputName    = argv[5];
     
     //System
-    
     Box box;
     
     //Particles
@@ -598,7 +674,7 @@ int main(int argc, char *argv[]){
         if(!(inputFile.getOption("k")>>k))
         {sys->log<System::CRITICAL>("k option has not been introduced properly.");}
         
-        //Gaussian                                          
+        //Gaussian                                       
         if(!(inputFile.getOption("epsilonGaussian")>>epsilonGaussian))
         {sys->log<System::CRITICAL>("epsilonGaussian option has not been introduced properly.");}
         if(!(inputFile.getOption("sigmaGaussian")>>sigmaGaussian))
@@ -781,14 +857,14 @@ int main(int argc, char *argv[]){
     
     tipZ = maxZ + real(1.122462)*(tipRadius+radiusClosestMax) + tipInitHeight;
     
-	std::shared_ptr<TipForce> tipPot = std::make_shared<TipForce>(tipEpsilon,tipRadius);
+	std::shared_ptr<TipForceEllipsoid> tipPot = std::make_shared<TipForceEllipsoid>(tipEpsilon,tipRadius);
     tipPot->setTipPosition({0,0,tipZ});
     
-    auto forcesTip = std::make_shared<ExternalForces<TipForce>>(pd, pgAll, sys,tipPot);
+    auto forcesTip = std::make_shared<ExternalForces<TipForceEllipsoid>>(pd, pgAll, sys,tipPot);
     
     //////////////////////////MEASURING/////////////////////////////////
     
-    auto measuring = std::make_shared<tipMeasuring<ExternalForces<TipForce>>>(sys,pd,pgAll,forcesTip);
+    auto measuring = std::make_shared<tipMeasuring<ExternalForces<TipForceEllipsoid>>>(sys,pd,pgAll,forcesTip);
     
     ////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////
