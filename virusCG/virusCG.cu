@@ -16,6 +16,8 @@
 using namespace uammd;
 using namespace std;
 
+#define GEL_POT
+
 struct forceFunctor{
     ParticleGroup::IndexIterator groupIterator;
     
@@ -28,6 +30,24 @@ struct forceFunctor{
     
         int i = groupIterator[index];
         return make_real3(force[i]); 
+    }
+};
+
+struct virialFunctor{
+    int2* pairIterator;
+    
+    real4* pos;
+    real4* force;
+    
+    virialFunctor(int2* pairIterator,real4* pos,real4* force):pairIterator(pairIterator),pos(pos),force(force){}
+    
+    __host__ __device__ __forceinline__
+    real operator()(const int &index) const {
+    
+        int i = pairIterator[index].x;
+        int j = pairIterator[index].y;
+        //return dot(make_real3(force[i]),make_real3(pos[j])); 
+        return make_real3(force[i]).z*make_real3(pos[j]).z; 
     }
 };
 
@@ -44,12 +64,19 @@ class pressureMeasuring{
         
         cudaStream_t stream;
         
-        //cub reduction variables
+        //
+        thrust::device_vector<int2> pairIterator;
+        
+        //cub reduction variables force
         real3*   totalForce;
+        real*    totalVirial;
         void*    cubTempStorageSum = NULL;
         size_t   cubTempStorageSizeSum = 0;
         
         void setUpCubReduction(){
+            
+            size_t   cubTempStorageSizeForce  = 0;
+            size_t   cubTempStorageSizeVirial = 0;
             
             //common
             cub::CountingInputIterator<int> countingIterator(0);
@@ -61,7 +88,27 @@ class pressureMeasuring{
         
             cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
             
-            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeForce, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
+            
+            //virial
+            auto groupIteratorCPU = pg->getIndexIterator(access::location::cpu);
+            int i,j;
+            for(i = 0  ;i<pg->getNumberParticles();i++){
+            for(j = i+1;j<pg->getNumberParticles();j++){
+                pairIterator.push_back({groupIteratorCPU[i],groupIteratorCPU[j]});
+            }}
+            
+            int pairNum = pairIterator.size();
+            
+            auto pos = pd->getPos(access::location::gpu, access::mode::read);
+            virialFunctor vF(thrust::raw_pointer_cast(pairIterator.data()),pos.raw(),force.raw());
+            
+            cub::TransformInputIterator<real, virialFunctor, cub::CountingInputIterator<int>> viralSumIterator(countingIterator,vF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeVirial, viralSumIterator, totalVirial, pairNum, stream);
+            
+            //
+            cubTempStorageSizeSum = std::max(cubTempStorageSizeForce,cubTempStorageSizeVirial);
             cudaMalloc(&cubTempStorageSum, cubTempStorageSizeSum);
         }
     
@@ -76,6 +123,7 @@ class pressureMeasuring{
             cudaStreamCreate(&stream);
             
             cudaMallocManaged((void**)&totalForce,sizeof(real3));
+            cudaMallocManaged((void**)&totalVirial,sizeof(real));
             this->setUpCubReduction();
         }
         
@@ -121,6 +169,38 @@ class pressureMeasuring{
             
             return *totalForce;
         }
+        
+        real sumVirial(){
+          
+            int pairNum = pairIterator.size();
+            int numberParticles = pg->getNumberParticles();
+            auto groupIterator = pg->getIndexIterator(access::location::gpu);
+            
+            int Nthreads=128;
+            int Nblocks=pairNum/Nthreads + ((pairNum%Nthreads)?1:0);
+            
+            {
+                auto force = pd->getForce(access::location::gpu, access::mode::readwrite);
+                fillWithGPU<<<Nblocks, Nthreads>>>(force.raw(), groupIterator, make_real4(0), numberParticles);
+            }
+            
+            for(auto forceComp: interactors) forceComp->sumForce(stream);
+            cudaDeviceSynchronize();
+            
+            cub::CountingInputIterator<int> countingIterator(0);
+            
+            //force
+            auto force = pd->getForce(access::location::gpu, access::mode::read);
+            auto pos = pd->getPos(access::location::gpu, access::mode::read);
+            virialFunctor vF(thrust::raw_pointer_cast(pairIterator.data()),pos.raw(),force.raw());
+            
+            cub::TransformInputIterator<real, virialFunctor, cub::CountingInputIterator<int>> viralSumIterator(countingIterator,vF);
+            
+            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, viralSumIterator, totalVirial, pairNum, stream);
+            cudaStreamSynchronize(stream);
+            
+            return *totalVirial;
+        }
 };
 
 double ndOrderEquationPositive(double a,double b,double c){
@@ -136,10 +216,10 @@ double computeRadiusXY(real area,real radiusZ){
            radiusXY = std::pow(radiusXY,1.0/p);
     double epsilon;
     
-    for(int i=0;i<niter;i++){
-        epsilon  = 1.0-std::pow(radiusXY/radiusZ,int(2));
-        radiusXY = std::sqrt((1.0/(2.0*M_PI))*(area-M_PI*(radiusZ*radiusZ/epsilon)*std::log((1.0+epsilon)/(1.0-epsilon))));
-    }
+    //for(int i=0;i<niter;i++){
+    //    epsilon  = 1.0-std::pow(radiusXY/radiusZ,int(2));
+    //    radiusXY = std::sqrt((1.0/(2.0*M_PI))*(area-M_PI*(radiusZ*radiusZ/epsilon)*std::log((1.0+epsilon)/(1.0-epsilon))));
+    //}
     
     return radiusXY;
 }
@@ -214,7 +294,7 @@ struct Capsid: public ParameterUpdatable{
   
 };
 
-struct potentialFunctor{
+struct GEL{
     
     struct InputPairParameters{
         real cutOff;
@@ -236,7 +316,7 @@ struct potentialFunctor{
         
         real r = sqrt(r2);
         
-        if(r >= params.cutOff) return 0;
+        if(r >= params.cutOff) return real(0);
         
         //DLVO
         
@@ -258,7 +338,7 @@ struct potentialFunctor{
         
         real r = sqrt(r2);
         
-        if(r >= params.cutOff) return 0;
+        if(r >= params.cutOff) return real(0);
         
         //DLVO
         
@@ -295,7 +375,73 @@ struct potentialFunctor{
     }
 };
 
-using potential    = Potential::Radial<potentialFunctor>;
+struct WCA{
+    
+    struct InputPairParameters{
+        real cutOff;
+        real diamEff;
+        real epsilon;
+    };
+      
+    struct PairParameters{
+        real diamEff;
+        real epsilon;
+    };
+
+    static inline __host__ __device__ real force(const real &r2, const PairParameters &params){
+        
+        real r = sqrt(r2);
+        
+        if(r < real(1.122462)*params.diamEff){
+            
+            real inv2  = (params.diamEff*params.diamEff)/r2;
+            real inv6  = inv2*inv2*inv2;
+            real inv12 = inv6*inv6;
+            
+            real fmod = real(4)*real(6)*params.epsilon*(real(2)*inv12-inv6)/r;
+            
+            return -fmod;     
+        } else {
+            return real(0);
+        }
+    }
+      
+    static inline __host__ __device__ real energy(const real &r2, const PairParameters &params){
+        
+        real r = sqrt(r2);
+        
+        if(r < real(1.122462)*params.diamEff){
+            
+            real inv2  = (params.diamEff*params.diamEff)/r2;
+            real inv6  = inv2*inv2*inv2;
+            real inv12 = inv6*inv6;
+            
+            return real(4)*params.epsilon*(inv12-inv6)+params.epsilon;
+        } else {
+            return real(0);
+        }
+    }
+
+
+
+
+    static inline __host__ PairParameters processPairParameters(InputPairParameters in_par){
+
+        PairParameters params;
+        
+        params.diamEff  = in_par.diamEff;
+        params.epsilon  = in_par.epsilon;
+        
+        return params;
+        
+    }
+};
+
+#ifdef GEL_POT
+using potential    = Potential::Radial<GEL>;
+#else
+using potential    = Potential::Radial<WCA>;
+#endif
 using pairforces   = PairForces<potential>;
 using nbodyforces  = NBodyForces<potential>;
 
@@ -331,6 +477,7 @@ int main(int argc, char *argv[]){
     
     int  N = 200;
     Box  box({100,100,100});
+    real V = box.boxSize.x*box.boxSize.y*box.boxSize.z;
     
     real partDiam   =  2;
     real kappa      =  3/partDiam;
@@ -431,6 +578,8 @@ int main(int argc, char *argv[]){
     
     auto pot = make_shared<potential>(sys);
     
+    #ifdef GEL_POT
+    
     {
         potential::InputPairParameters params;
         
@@ -443,6 +592,21 @@ int main(int argc, char *argv[]){
         
         pot->setPotParameters(0, 0, params);
     }
+    
+    #else
+    
+    {
+        potential::InputPairParameters params;
+        
+        params.diamEff   = partDiam;
+        params.epsilon = 1;
+        
+        params.cutOff   = real(1.122462)*partDiam;
+        
+        pot->setPotParameters(0, 0, params);
+    }
+    
+    #endif
     
     //nbodyforces::Parameters params;
     //params.box = box; 
@@ -519,6 +683,7 @@ int main(int argc, char *argv[]){
         
         if(j%measuringSteps ==0) {
             sys->log<System::MESSAGE>("Measuting ...");
+            //outMeasured << capsidPot->getRadiusZ() << " " << pM->sumVirial() << std::endl;
             outMeasured << capsidPot->getRadiusZ() << " " << pM->sumForce().z << std::endl;
         }
         

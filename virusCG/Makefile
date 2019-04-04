@@ -12,7 +12,7 @@ CXX=g++-4.9
 
 #Cuda version (assumed to be in /usr/local/cuda*) You can change this in CUDA_ROOT
 #If not set it will be autodetected
-CUDA_VER=
+CUDA_VER=10.0
 
 ifeq ($(CUDA_VER),)
 CUDA_VER:=$(shell ls -d /usr/local/cuda*/ | grep -Eo '\-[0-9]\.[0-9]' | cut -d- -f2 | sort -grk1 | head -1)
