@@ -48,6 +48,9 @@ int main(int argc, char *argv[]){
     real rCut_ENM = 1;
     real rCut_BOND = 1.5;
     
+    real rCut_ENM_tip = 2.0;
+    real tip_virus_sep = 10.0;
+    
     STRUCTURE pdbInput;
     //STRUCTURE pdbOutput;
     
@@ -116,7 +119,7 @@ int main(int argc, char *argv[]){
     
     for(int i = 0;    i<atomVector.size();i++){
         
-        std::cout << "Looking for clashed " << i+1 <<"/"<<atomVector.size() << std::endl;
+        std::cerr << "Looking for clashed " << i+1 <<"/"<<atomVector.size() << std::endl;
         
         for(int j = i +1; j<atomVector.size();j++){
             
@@ -146,9 +149,9 @@ int main(int argc, char *argv[]){
     
     for(int i = clashedVector.size() - 1; i >= 0 ; i--){
         
-        std::cout << "Solving clashed " << clashedVector.size()-i << "/" << clashedVector.size()-1 << std::endl;
+        std::cerr << "Solving clashed " << clashedVector.size()-i << "/" << clashedVector.size()-1 << std::endl;
         
-        //std::cout << i << " " 
+        //std::cerr << i << " " 
         //          << clashedVector[i].i  << " " << clashedVector[i].j    << " "
         //          << clashedVector[i].r  << " " << clashedVector[i].rmin << std::endl << std::endl;
         
@@ -159,7 +162,7 @@ int main(int argc, char *argv[]){
             atomVector[clashedVector[i].i].radius*=gamma;
             atomVector[clashedVector[i].j].radius*=gamma;
             
-            //std::cout << " scale radius: " << clashedVector[i].r << " " << gamma << std::endl << std::endl; 
+            //std::cerr << " scale radius: " << clashedVector[i].r << " " << gamma << std::endl << std::endl; 
             
             for(auto& cl : clashedVector){
                 if(cl.i == clashedVector[i].i){
@@ -181,7 +184,7 @@ int main(int argc, char *argv[]){
     /*
     for(int i = 0;    i<atomVector.size();i++){
         
-        std::cout << "Check " << i+1 <<"/"<<atomVector.size() << std::endl;
+        std::cerr << "Check " << i+1 <<"/"<<atomVector.size() << std::endl;
         
         for(int j = i +1; j<atomVector.size();j++){
             
@@ -199,7 +202,7 @@ int main(int argc, char *argv[]){
                        diamEff *= 1.122462;
                 
                 if(r <= diamEff){
-                    std::cout << "ERROR" << std::endl;
+                    std::cerr << "ERROR" << std::endl;
                     std::exit(0);
                 }
             }
@@ -215,7 +218,7 @@ int main(int argc, char *argv[]){
         
         for(int i = 0;    i<atomVector.size();i++){
             
-            std::cout << "Clashed " << i+1 <<"/"<<atomVector.size() << std::endl;
+            std::cerr << "Clashed " << i+1 <<"/"<<atomVector.size() << std::endl;
             
             for(int j = i +1; j<atomVector.size();j++){
                 
@@ -241,7 +244,7 @@ int main(int argc, char *argv[]){
         
         if(clashedVector.size()>0){
             
-            std::cout << "sorting... " << std::endl;
+            std::cerr << "sorting... " << std::endl;
             std::sort(clashedVector.begin(),clashedVector.end());
             
             clashBuffer = clashedVector.back();
@@ -254,7 +257,7 @@ int main(int argc, char *argv[]){
                    
             double gamma = clashBuffer.r/(1.01*diamEff);
             
-            std::cout << clashBuffer.r << " " << gamma << std::endl;
+            std::cerr << clashBuffer.r << " " << gamma << std::endl;
             
             atomVector[clashBuffer.i].radius*=gamma;
             atomVector[clashBuffer.j].radius*=gamma;
@@ -288,7 +291,7 @@ int main(int argc, char *argv[]){
     
     for(int i = 0;    i<atomVector.size();i++){
         
-        std::cout << "Generating ENM and Bonds " << i+1 <<"/"<<atomVector.size() << std::endl;
+        std::cerr << "Generating ENM and Bonds " << i+1 <<"/"<<atomVector.size() << std::endl;
         
         for(int j = i +1; j<atomVector.size();j++){
             
@@ -366,19 +369,19 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    std::cout << "Removed particles: " << removedParticles_counter << std::endl;
+    std::cerr << "Removed particles: " << removedParticles_counter << std::endl;
     
     int status;
     std::stringstream ss;
     
     ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
-    std::cout << ss.str() << std::endl;
+    std::cerr << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
     ss.clear();
     ss.str(std::string());
     ss << "sed -i \'1s/^/" << Gaussian_counter <<"\\n/\' "<< outputGaussianName;
-    std::cout << ss.str() << std::endl;
+    std::cerr << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
     ////////////////////////////////////////////////////////////////////
@@ -455,7 +458,7 @@ int main(int argc, char *argv[]){
     real3 tipNewPos;
     real3 translationVector;
     
-    tipNewPos = {atomCentroid.x,atomCentroid.y,atomMax.z + 10};
+    tipNewPos = {atomCentroid.x,atomCentroid.y,atomMax.z + tip_virus_sep};
     
     translationVector = tipNewPos - tipMin;
     
@@ -466,31 +469,15 @@ int main(int argc, char *argv[]){
     ////////////////////////////////////////////////////////////////////
     
     
-    int ENM_tip_counter = 0;
+    int FP_tip_counter = 0;
     for(int i = 0;    i<tipVector.size();i++){
         
-        std::cout << "Generating ENM and Bonds (Tip) " << i+1 <<"/"<<tipVector.size() << std::endl;
+        std::cerr << "Generating FP (Tip) " << i+1 <<"/"<<tipVector.size() << std::endl;
         
-        for(int j = i +1; j<tipVector.size();j++){
-            
-            real3 ri = tipVector[i].pos;
-            real3 rj = tipVector[j].pos;
-            real3 rij = rj - ri;
-            double r = sqrt(dot(rij,rij));
-            
-            if(r < rCut_ENM){
-                
-                enmTipFile << std::setw(10) << tipVector[i].serial <<
-                              std::setw(10) << tipVector[j].serial <<
-                              std::setprecision(6)                 <<
-                              std::setw(12) << r                   << std::endl;
-                            
-                ENM_tip_counter++;
-                
-            }
-                
-            
-        }
+        enmTipFile << std::setw(10) << tipVector[i].serial <<
+                      std::setw(10) << tipVector[i].pos    << std::endl;
+                    
+        FP_tip_counter++;
     }
     
     for(atomType&  atm : tipVector){
@@ -525,8 +512,14 @@ int main(int argc, char *argv[]){
     
     ss.clear();
     ss.str(std::string());
-    ss << "sed -i \'1s/^/" << ENM_tip_counter <<"\\n/\' "<< outputENM_tip_Name;
-    std::cout << ss.str() << std::endl;
+    ss << "sed -i \'1s/^/" << FP_tip_counter <<"\\n/\' "<< outputENM_tip_Name;
+    std::cerr << ss.str() << std::endl;
+    status = std::system(ss.str().c_str());
+    
+    ss.clear();
+    ss.str(std::string());
+    ss << "sed -i \'1s/^/0\\n/\' "<< outputENM_tip_Name;
+    std::cerr << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
     
