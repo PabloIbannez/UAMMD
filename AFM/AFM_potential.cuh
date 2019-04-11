@@ -80,7 +80,7 @@ namespace Potential {
                     inline __device__ real4 compute(const real4 &pi, const real4 &pj,
                                                     const Info &infoi, const Info &infoj) {
             
-            
+                        
                         if(infoi.partMolId == infoj.partMolId) {
                             return make_real4(0);
                         }
