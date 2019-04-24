@@ -293,7 +293,7 @@ int main(int argc, char *argv[]){
         
         std::cerr << "Generating ENM and Bonds " << i+1 <<"/"<<atomVector.size() << std::endl;
         
-        for(int j = i +1; j<atomVector.size();j++){
+        for(int j = i + 1; j<atomVector.size();j++){
             
             real3 ri = atomVector[i].pos;
             real3 rj = atomVector[j].pos;
@@ -469,15 +469,29 @@ int main(int argc, char *argv[]){
     ////////////////////////////////////////////////////////////////////
     
     
-    int FP_tip_counter = 0;
+    int bond_tip_counter = 0;
     for(int i = 0;    i<tipVector.size();i++){
         
-        std::cerr << "Generating FP (Tip) " << i+1 <<"/"<<tipVector.size() << std::endl;
+        std::cerr << "Generating bonds (Tip) " << i+1 <<"/"<<tipVector.size() << std::endl;
         
-        enmTipFile << std::setw(10) << tipVector[i].serial <<
-                      std::setw(10) << tipVector[i].pos    << std::endl;
+        for(int j = i + 1; j<tipVector.size();j++){
+            
+            real3 ri = tipVector[i].pos;
+            real3 rj = tipVector[j].pos;
+            real3 rij = rj - ri;
+            double r = sqrt(dot(rij,rij));
+        
+            if(r < rCut_ENM_tip){
                     
-        FP_tip_counter++;
+                enmTipFile << std::setw(10) << tipVector[i].serial <<
+                              std::setw(10) << tipVector[j].serial <<
+                              std::setprecision(6)                 <<
+                              std::setw(12) << r                   << std::endl;
+                
+                bond_tip_counter++;
+                    
+            }
+        }
     }
     
     for(atomType&  atm : tipVector){
@@ -510,19 +524,21 @@ int main(int argc, char *argv[]){
                 << -1                               << std::endl;
     }
     
+    ////////////////////////////////////////////////////////////////////
+    
     ss.clear();
     ss.str(std::string());
-    ss << "sed -i \'1s/^/" << FP_tip_counter <<"\\n/\' "<< outputENM_tip_Name;
+    ss << "sed -i \'1s/^/" << bond_tip_counter <<"\\n/\' "<< outputENM_tip_Name;
     std::cerr << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
+    /*
     ss.clear();
     ss.str(std::string());
     ss << "sed -i \'1s/^/0\\n/\' "<< outputENM_tip_Name;
     std::cerr << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
-    
-    
+    */
     
     return status;
     
