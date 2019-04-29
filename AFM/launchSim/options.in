@@ -36,25 +36,26 @@ initialVirusTipSep 1
 downwardForce -0.01
 
 #Downward
-nstepsDownward 0
-printStepsDownward 1000
+nstepsDownward 10000
+printStepsDownward 10000
 
 #Thermalization
-nstepsTerm 0
-printStepsTerm 1000
+nstepsTerm 10000
+printStepsTerm 10000
 
 #Simulation
-nsteps 10000000
-printSteps 1000
+nsteps 2000000000
+printSteps 2500
 
 #Common
 sortSteps 1000
 
 #Measuring
-descentSteps 1000
+descentSteps 5000
 descentDistace 0.1
 measureSteps 100
-maxIndentation 10.0
+maxIndentation 1000.0
+maxIndentationForce 10.0
 
 #Integrator
 temperature 2.479

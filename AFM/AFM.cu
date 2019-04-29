@@ -437,6 +437,7 @@ int main(int argc, char *argv[]){
     real descentDistace;
     int  measureSteps;
     real maxIndentation;
+    real maxIndentationForce;
 	
     //Integrator
 	real temperature;
@@ -525,6 +526,8 @@ int main(int argc, char *argv[]){
         {sys->log<System::CRITICAL>("descentDistace option has not been introduced properly.");}
         if(!(inputFile.getOption("maxIndentation")>>maxIndentation))
         {sys->log<System::CRITICAL>("maxIndentation option has not been introduced properly.");}
+        if(!(inputFile.getOption("maxIndentationForce")>>maxIndentationForce))
+        {sys->log<System::CRITICAL>("maxIndentationForce option has not been introduced properly.");}
 	    
         //Integrator
         if(!(inputFile.getOption("temperature")>>temperature))
@@ -773,8 +776,11 @@ int main(int argc, char *argv[]){
 			}
 			
 			if(j%measureSteps == 0){
+                real currentForce = -verlet->getTipForce().z*real(0.0016605391);
                 // 1 kj/(mol·nm) = 0.0016605391 nN
-                outTip << verlet->getTipPositionEq() << " " << verlet->getTipPosition().z << " " << -verlet->getTipForce().z*real(0.0016605391) << std::endl;
+                outTip << verlet->getTipPositionEq() << " " << verlet->getTipPosition().z << " " << currentForce << std::endl;
+                
+                if(currentForce > maxIndentationForce){break;}
             }
             
             if(j%descentSteps == 0){
