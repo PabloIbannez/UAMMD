@@ -44,6 +44,7 @@ BASIC_LINE= $(CUDA_ROOT)/bin/nvcc   -O3 -std=c++11 -x cu    $(INCLUDEFLAGS) $(OP
 
 protein:
 	$(BASIC_LINE) AFM.cu -o AFM
+	cp AFM ./launchSim
 
 
 

@@ -1,5 +1,5 @@
 #System
-box 80 80 200
+box 100 100 300
 
 #Particles
 epsilonParticles 1
@@ -9,29 +9,38 @@ cutOffParticles  1.6
 k 1000
 
 #Gaussian
-epsilonGaussian 0.1
-sigmaGaussian 5.0
+epsilonGaussian 0.15
+sigmaGaussian 1.0
 
 #Wall
 wallRadius 0.5
 wallEpsilon 1
 
 #Tip
+tipMass 10000.0
+tipRadius 20.0
+
+kTip 200.0
+harmonicWallTip 100.0
+
+tipInitHeight;
+initialVirusTipSep;
+    
 tipRadius 20
 tipEpsilon 1
 
 tipInitHeight 30
-initialVirusTipSep 2
+initialVirusTipSep 1
 
 #Downward force
 downwardForce -0.01
 
 #Downward
-nstepsDownward 1000
+nstepsDownward 0
 printStepsDownward 1000
 
 #Thermalization
-nstepsTerm 10000
+nstepsTerm 0
 printStepsTerm 1000
 
 #Simulation
@@ -45,7 +54,7 @@ sortSteps 1000
 descentSteps 1000
 descentDistace 0.1
 measureSteps 100
-maxIndentation 30.0
+maxIndentation 10.0
 
 #Integrator
 temperature 2.479

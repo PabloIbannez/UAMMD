@@ -1,6 +1,5 @@
 #include "uammd.cuh"
 
-#include "Integrator/SteepestDescent.cuh"
 #include "Integrator/VerletNVT.cuh"
 #include "Interactor/BondedForces.cuh"
 #include "Interactor/PairForces.cuh"
@@ -12,6 +11,8 @@
 #include "iogpf/iogpf.hpp"
 
 #include "third_party/cub/cub.cuh"
+
+#include "AFM_integrator.cuh"
 
 using namespace uammd;
 
@@ -281,68 +282,6 @@ struct ConstantForce: public ParameterUpdatable{
 		auto pos = pd->getPos(access::location::gpu, access::mode::read);
 		return std::make_tuple(pos.raw());
 	}
-}; 
-
-struct TipForce: public ParameterUpdatable{
-    
-	
-    real3 tipPosition = {0,0,0};
-    
-    real  epsilon = 1;
-    real  tipRadius = 20;
-    
-	TipForce(real epsilon,real tipRadius):epsilon(epsilon),tipRadius(tipRadius){}
-	
-	__device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
-	    
-        real3 rtp = tipPosition-make_real3(pos);
-        real  r2 = dot(rtp,rtp);
-        real  r  = sqrt(r2);
-        
-        real effDiam = tipRadius+radius;
-        
-        if(r < real(1.122462)*effDiam){
-            
-            const real invr2   = real(1.0)/r2;
-            const real Dinvr2  = effDiam*effDiam*invr2;
-            const real Dinvr6  = Dinvr2*Dinvr2*Dinvr2;
-            const real Dinvr12 = Dinvr6*Dinvr6;
-            
-            real fmod = real(4*6)*epsilon*(real(2)*Dinvr12-Dinvr6);
-            
-            return -fmod*rtp;
-            
-        } else {
-            return make_real3(0);
-        }
-	}
-	
-	std::tuple<const real4 *,const real *> getArrays(ParticleData *pd){
-		auto pos    = pd->getPos(access::location::gpu, access::mode::read);
-		auto radius = pd->getRadius(access::location::gpu, access::mode::read);
-		return std::make_tuple(pos.raw(),radius.raw());
-	}
-    
-    void setTipPosition(real3 newTipPosition){
-        tipPosition = newTipPosition;
-    }
-    
-    void setTipHeight(real newHeight){
-        tipPosition.z = newHeight;
-    }
-    
-    real3 getTipPosition(){
-        return tipPosition;
-    }
-    
-    void setTipRadius(real newTipRadius){
-        tipRadius = newTipRadius;
-    }
-    
-    real getTipRadius(){
-        return tipRadius;
-    }
-    
 };
 
 void outputState(std::ofstream& os,
@@ -365,6 +304,31 @@ void outputState(std::ofstream& os,
 		    << real(1.122462)*radius.raw()[sortedIndex[i]]           <<  " "
 		    << mId.raw()[sortedIndex[i]]                             <<  std::endl;
     }
+	
+}
+
+void outputState_Wall(std::ofstream& os,
+                           std::shared_ptr<System> sys,
+                           std::shared_ptr<ParticleData> pd,
+                           Box box,
+                           real wallZ,
+                           real wallRadius){
+							
+	outputState(os,sys,pd,box);
+	
+	int  nx = std::ceil(box.boxSize.x/(real(2.0)*wallRadius));
+	int  ny = std::ceil(box.boxSize.x/(real(2.0)*wallRadius));
+	
+	fori(0,nx){
+	forj(0,ny){
+		
+		real3 wallAtom = {real(2.0)*wallRadius*i-box.boxSize.x*real(0.5),real(2.0)*wallRadius*j-box.boxSize.y*real(0.5),wallZ};
+		
+		os  << wallAtom    <<  " "
+		    << wallRadius  <<  " "
+		    << -2          <<  std::endl;
+        
+    }}
 	
 }
 
@@ -399,112 +363,8 @@ void outputState_TipWall(std::ofstream& os,
 	
 }
 
-struct forceFunctor{
-    ParticleGroup::IndexIterator groupIterator;
-    
-    real4* force;
-    
-    forceFunctor(ParticleGroup::IndexIterator groupIterator,real4* force):groupIterator(groupIterator),force(force){}
-    
-    __host__ __device__ __forceinline__
-    real3 operator()(const int &index) const {
-    
-        int i = groupIterator[index];
-        return make_real3(force[i]); 
-    }
-};
-
-template <class tipForce>
-class tipMeasuring{
-    
-    private:
-        
-        shared_ptr<System> sys;
-        
-        shared_ptr<ParticleData> pd;
-        shared_ptr<ParticleGroup> pg;
-        
-        shared_ptr<tipForce> tipF;
-        
-        cudaStream_t stream;
-        
-        //cub reduction variables
-        real3*   totalForce;
-        void*    cubTempStorageSum = NULL;
-        size_t   cubTempStorageSizeSum = 0;
-        
-        void setUpCubReduction(){
-            
-            //common
-            cub::CountingInputIterator<int> countingIterator(0);
-            auto groupIterator = pg->getIndexIterator(access::location::gpu);
-            
-            //force
-            auto force = pd->getForce(access::location::gpu, access::mode::read);
-            forceFunctor fF(groupIterator,force.raw());
-        
-            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
-            
-            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
-            cudaMalloc(&cubTempStorageSum, cubTempStorageSizeSum);
-        }
-    
-    public:
-    
-        tipMeasuring(shared_ptr<System> sys,
-                       shared_ptr<ParticleData> pd,
-                       shared_ptr<ParticleGroup> pg,
-                       shared_ptr<tipForce> tipF):sys(sys),pd(pd),pg(pg),tipF(tipF){
-          
-          sys->log<System::MESSAGE>("[tipMeasuring] Created.");
-          
-          cudaStreamCreate(&stream);
-          
-          cudaMallocManaged((void**)&totalForce,sizeof(real3));
-          this->setUpCubReduction();
-        }
-        
-        ~tipMeasuring(){
-          
-            sys->log<System::MESSAGE>("[tipMeasuring] Destroyed.");
-            
-            cudaFree(totalForce);
-            cudaFree(cubTempStorageSum);
-            cudaStreamDestroy(stream);
-        }
-    
-        real3 sumForce(){
-          
-            int numberParticles = pg->getNumberParticles();
-            auto groupIterator = pg->getIndexIterator(access::location::gpu);
-            
-            int Nthreads=128;
-            int Nblocks=numberParticles/Nthreads + ((numberParticles%Nthreads)?1:0);
-            
-            {
-	            auto force = pd->getForce(access::location::gpu, access::mode::readwrite);
-                fillWithGPU<<<Nblocks, Nthreads>>>(force.raw(), groupIterator, make_real4(0), numberParticles);
-            }
-            
-            tipF->sumForce(stream);
-            cudaDeviceSynchronize();
-            
-            cub::CountingInputIterator<int> countingIterator(0);
-            
-            //force
-            auto force = pd->getForce(access::location::gpu, access::mode::read);
-            forceFunctor fF(groupIterator,force.raw());
-            
-            cub::TransformInputIterator<real3, forceFunctor, cub::CountingInputIterator<int>> forceSumIterator(countingIterator,fF);
-            
-            cub::DeviceReduce::Sum(cubTempStorageSum, cubTempStorageSizeSum, forceSumIterator, totalForce, pg->getNumberParticles(), stream);
-            cudaStreamSynchronize(stream);
-            
-            return *totalForce;
-        }
-};
-
-using NVT = VerletNVT::GronbechJensen;
+using NVT     = VerletNVT::GronbechJensen;
+using NVT_AFM = AFM::AFM_integrator::AFM_integrator;
 
 int main(int argc, char *argv[]){
     
@@ -545,9 +405,12 @@ int main(int argc, char *argv[]){
     real wallEpsilon;
     
     //Tip
+    real tipMass;
     real tipRadius;
-    real tipEpsilon;
     
+    real kTip;
+    real harmonicWallTip;
+
     real tipInitHeight;
     real initialVirusTipSep;
     
@@ -610,11 +473,16 @@ int main(int argc, char *argv[]){
         if(!(inputFile.getOption("wallEpsilon")>>wallEpsilon))
         {sys->log<System::CRITICAL>("wallEpsilon option has not been introduced properly.");}
                                                
-        //Tip                                
+        //Tip
+        if(!(inputFile.getOption("tipMass")>>tipMass))
+        {sys->log<System::CRITICAL>("tipMass option has not been introduced properly.");}
         if(!(inputFile.getOption("tipRadius")>>tipRadius))
         {sys->log<System::CRITICAL>("tipRadius option has not been introduced properly.");}
-        if(!(inputFile.getOption("tipEpsilon")>>tipEpsilon))
-        {sys->log<System::CRITICAL>("tipEpsilon option has not been introduced properly.");}
+        
+        if(!(inputFile.getOption("kTip")>>kTip))
+        {sys->log<System::CRITICAL>("kTip option has not been introduced properly.");}
+        if(!(inputFile.getOption("harmonicWallTip")>>harmonicWallTip))
+        {sys->log<System::CRITICAL>("harmonicWallTip option has not been introduced properly.");}
                                                             
         if(!(inputFile.getOption("tipInitHeight")>>tipInitHeight))
         {sys->log<System::CRITICAL>("tipInitHeight option has not been introduced properly.");}
@@ -743,14 +611,11 @@ int main(int argc, char *argv[]){
     
     
     real wallZ;
-    real tipZ;
-    
-    real minZ =  INFINITY;
-    real maxZ = -INFINITY;
-    real radiusClosestMin = 0;
-    real radiusClosestMax = 0;
-    
     {
+        
+        real minZ =  INFINITY;
+        real radiusClosestMin = 0;
+    
 		auto pos      = pd->getPos(access::location::cpu, access::mode::read);
 		auto radius   = pd->getRadius(access::location::cpu, access::mode::read);
 		
@@ -760,35 +625,17 @@ int main(int argc, char *argv[]){
 				minZ = z;
 				radiusClosestMin = radius.raw()[i];
 			}
-
-			if(z > maxZ){
-				maxZ = z;
-				radiusClosestMax = radius.raw()[i];
-			}
 		}
+        
+        wallZ = minZ-real(1.122462)*(wallRadius+radiusClosestMin);
 	}
     
     //WALL
 	
-	wallZ = minZ-real(1.122462)*(wallRadius+radiusClosestMin);
-    
     auto extWall = std::make_shared<ExternalForces<wall>>(pd, pgAll, sys,std::make_shared<wall>(wallZ,wallRadius,wallEpsilon));
     
     //DOWNWARD FORCE 
 	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgAll, sys,std::make_shared<ConstantForce>(downwardForce));
-	
-	////PROBE FORCE
-    
-    tipZ = maxZ + real(1.122462)*(tipRadius+radiusClosestMax) + tipInitHeight;
-    
-	std::shared_ptr<TipForce> tipPot = std::make_shared<TipForce>(tipEpsilon,tipRadius);
-    tipPot->setTipPosition({0,0,tipZ});
-    
-    auto forcesTip = std::make_shared<ExternalForces<TipForce>>(pd, pgAll, sys,tipPot);
-    
-    //////////////////////////MEASURING/////////////////////////////////
-    
-    auto measuring = std::make_shared<tipMeasuring<ExternalForces<TipForce>>>(sys,pd,pgAll,forcesTip);
     
     ////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////
@@ -799,38 +646,34 @@ int main(int argc, char *argv[]){
     Timer tim;
     tim.tic();
     
-    ////////////////////////THERMALIZATION//////////////////////////////
+    ////////////////////////DOWNWARD//////////////////////////////
     
     {
-		NVT::Parameters parTherm;
-		parTherm.temperature = temperature; 
-		parTherm.dt = dt;
-		parTherm.viscosity = viscosity;  
+		NVT::Parameters parDown;
+		parDown.temperature = temperature; 
+		parDown.dt = dt;
+		parDown.viscosity = viscosity;  
 		
-		auto verletTherm = std::make_shared<NVT>(pd, pgAll, sys,parTherm);
+		auto verletDown = std::make_shared<NVT>(pd, pgAll, sys,parDown);
 		
-		verletTherm->addInteractor(bondedforces);
-		verletTherm->addInteractor(gaussianforces);
-		verletTherm->addInteractor(pairforces);
-		verletTherm->addInteractor(extWall);
-		verletTherm->addInteractor(downwardForceVirus);
+		verletDown->addInteractor(bondedforces);
+		verletDown->addInteractor(gaussianforces);
+		verletDown->addInteractor(pairforces);
+		verletDown->addInteractor(extWall);
+		verletDown->addInteractor(downwardForceVirus);
 		
-		outputState_TipWall(outState,sys,pd,box,
-                              tipPot->getTipPosition(),
-                              tipPot->getTipRadius(),
-                              wallZ,wallRadius);
+		outputState_Wall(outState,sys,pd,box,
+                         wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
 		
 		forj(0,nstepsDownward){
-			verletTherm->forwardTime();
+			verletDown->forwardTime();
 		
 			//Write results
 			if(j%printStepsDownward==1){
-				outputState_TipWall(outState,sys,pd,box,
-                                      tipPot->getTipPosition(),
-                                      tipPot->getTipRadius(),
-                                      wallZ,wallRadius);
+				outputState_Wall(outState,sys,pd,box,
+                                 wallZ,wallRadius);
 			}    
 			
 			if(j%sortSteps == 0){
@@ -846,7 +689,8 @@ int main(int argc, char *argv[]){
     real3 tipPosition = {0,0,0};
     
     {
-        maxZ = -INFINITY;
+        real maxZ = -INFINITY;
+        real radiusClosestMax = 0;
         
 		auto pos    = pd->getPos(access::location::cpu, access::mode::readwrite);
 		auto radius = pd->getRadius(access::location::cpu, access::mode::readwrite);
@@ -868,28 +712,34 @@ int main(int argc, char *argv[]){
 		//Move tip to {vC.x,vC.y,maxZ+(tipRadius+radiusClosest)+initialVirusTipSep}
 		
         tipPosition = {virusCentroid.x,virusCentroid.y,maxZ + (tipRadius+radiusClosestMax)+initialVirusTipSep};
-        tipPot->setTipPosition(tipPosition);
-		
 	}
 	
 	
     {
-		NVT::Parameters par;
+		NVT_AFM::Parameters par;
 		par.temperature = temperature; 
 		par.dt = dt;
 		par.viscosity = viscosity;  
+        
+        par.kTip = kTip;
+        par.harmonicWallTip = harmonicWallTip;
+
+        par.tipMass = tipMass;
+        par.tipRadius = tipRadius;
+        
 		
-		auto verlet = std::make_shared<NVT>(pd, pgAll, sys, par);
+		auto verlet = std::make_shared<NVT_AFM>(pd, pgAll, sys, par);
 		
 		verlet->addInteractor(bondedforces);
 		verlet->addInteractor(gaussianforces);
 		verlet->addInteractor(pairforces);
 		verlet->addInteractor(extWall);
-		verlet->addInteractor(forcesTip);
+        
+        verlet->setTipPosition(tipPosition);
 		
 		outputState_TipWall(outState,sys,pd,box,
-                              tipPot->getTipPosition(),
-                              tipPot->getTipRadius(),
+                              verlet->getTipPosition(),
+                              verlet->getTipRadius(),
                               wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
@@ -901,8 +751,8 @@ int main(int argc, char *argv[]){
 			//Write results
 			if(j%printStepsTerm==1){
 				outputState_TipWall(outState,sys,pd,box,
-                                    tipPot->getTipPosition(),
-                                    tipPot->getTipRadius(),
+                                    verlet->getTipPosition(),
+                                    verlet->getTipRadius(),
                                     wallZ,wallRadius);
 			}    
 			
@@ -917,21 +767,38 @@ int main(int argc, char *argv[]){
             
 			if(j%printSteps==1){
 				outputState_TipWall(outState,sys,pd,box,
-                                      tipPot->getTipPosition(),
-                                      tipPot->getTipRadius(),
+                                      verlet->getTipPosition(),
+                                      verlet->getTipRadius(),
                                       wallZ,wallRadius);
 			}
 			
 			if(j%measureSteps == 0){
                 // 1 kj/(mol·nm) = 0.0016605391 nN
-                outTip << tipPot->getTipPosition().z << " " << -measuring->sumForce().z*real(0.0016605391) << std::endl;
+                outTip << verlet->getTipPositionEq() << " " << verlet->getTipPosition().z << " " << -verlet->getTipForce().z*real(0.0016605391) << std::endl;
             }
             
             if(j%descentSteps == 0){
-                real3 currentTipPosition = tipPot->getTipPosition();
-                tipPot->setTipHeight(currentTipPosition.z-descentDistace);
+                real currentTipPosition = verlet->getTipPositionEq();
+                verlet->setTipPositionEq(currentTipPosition-descentDistace);
                 
-                if(currentTipPosition.z < maxIndentation){break;}
+                if(currentTipPosition < maxIndentation){break;}
+                
+                //Thermalization
+                forj(0,nstepsTerm){
+		        	verlet->forwardTime();
+		        
+		        	//Write results
+		        	if(j%printStepsTerm==1){
+		        		outputState_TipWall(outState,sys,pd,box,
+                                            verlet->getTipPosition(),
+                                            verlet->getTipRadius(),
+                                            wallZ,wallRadius);
+		        	}    
+		        	
+		        	if(j%sortSteps == 0){
+		        		pd->sortParticles();
+		        	}
+		        }
             }
             
 			
