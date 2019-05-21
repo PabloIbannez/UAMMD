@@ -72,7 +72,9 @@ int main(int argc, char *argv[]){
     } else {
         std::cerr << "Input format error" << std::endl;
         std::cerr << "No cargo: (virus).pdb output" << std::endl;
-        std::cerr << "No cargo: (virus).pdb (cargo).pdb output" << std::endl;
+        std::cerr << "Cargo: (virus).pdb (cargo).pdb output" << std::endl;
+        
+        return EXIT_FAILURE;
     }
     
     std::string outputTopName      = outputName + std::string(".top");
