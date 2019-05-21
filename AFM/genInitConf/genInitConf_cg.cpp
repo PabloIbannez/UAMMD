@@ -43,13 +43,13 @@ int main(){
     STRUCTURE pdbInput;
     STRUCTURE pdbOutput;
     
-    pdbInput.loadPDB("3j6rClearSep_noH.pdb");
+    pdbInput.loadPDB("p22ClearSep.pdb");
     //pdbInput.loadPDB("p22Test.pdb");
     pdbInput.renumber();
     
     real3 center = computeCentroid(pdbInput);
-    //geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
-    //geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
+    geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
+    geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
     
     ////////////////////////////////////////////////////////////////////
     

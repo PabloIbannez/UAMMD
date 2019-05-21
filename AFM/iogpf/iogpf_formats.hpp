@@ -186,7 +186,7 @@ namespace uammd{
                 #endif
             }
         };
-        
+        */
         class charge{
         public:
             void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){
@@ -201,7 +201,7 @@ namespace uammd{
                 #endif
             }
         };
-        
+        /*
         class solvE{
         public:
             void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){

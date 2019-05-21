@@ -1,9 +1,29 @@
 #System
+    
+kB 0.00831879
+    
+temperature 298.0
+viscosity 0.1
+    
 box 100 100 300
-
+    
 #Particles
-epsilonParticles 1
-cutOffParticles  1.6
+epsilon_wca 1.0
+
+epsilon_0 -1.85
+lambda 0.192
+gamma 1.0
+
+partInteractionData MJParameters.dat
+
+f 138.935458
+debyeLenght 1.0
+dielectricConstant 80.0
+
+cutOffFactorLJ 2.5
+cutOffFactorDebye 2.0
+
+allSteric false
 
 #ENM
 k 1000
@@ -22,26 +42,25 @@ tipRadius 20.0
 
 kTip 200.0
 harmonicWallTip 100.0
-
-tipInitHeight;
-initialVirusTipSep;
     
-tipRadius 20
-tipEpsilon 1
+tipRadius 20.0
+tipEpsilon 1.0
 
-tipInitHeight 30
-initialVirusTipSep 1
+tipInitHeight 30.0
+initialVirusTipSep 1.0
+
+tipHorizontalDisplacement 0.0
 
 #Downward force
 downwardForce -0.01
 
 #Downward
-nstepsDownward 10000
+nstepsDownward 0
 printStepsDownward 10000
 
 #Thermalization
 nstepsTerm 10000
-printStepsTerm 10000
+printStepsTerm 100
 
 #Simulation
 nsteps 2000000000
@@ -54,8 +73,8 @@ sortSteps 1000
 descentSteps 5000
 descentDistace 0.1
 measureSteps 100
-maxIndentation 1000.0
-maxIndentationForce 10.0
+maxIndentation 10.0
+maxIndentationForce 15.0
 
 #Integrator
 temperature 2.479

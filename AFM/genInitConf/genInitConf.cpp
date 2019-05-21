@@ -34,11 +34,46 @@ struct clash{
     }
 };
 
+#define CG
+
+real getCharge(std::string& resName){
+    
+    if(resName == "LYS" or resName == "ARG"){
+        return 1.0;
+    }
+    
+    if(resName == "ASP" or resName == "GLU"){
+        return -1.0;
+    }
+    
+    if(resName == "HIS"){
+        return 0.5;
+    }
+    
+}
 
 int main(int argc, char *argv[]){
     
-    std::string inputFileName = argv[1];
-    std::string outputName    = argv[2];
+    bool cargo;
+    
+    std::string inputFileName;
+    std::string inputFileCargoName;
+    std::string outputName;
+    
+    if(argc == 3){
+        inputFileName = argv[1];
+        outputName    = argv[2];
+        cargo = false;
+    } else if(argc == 4){
+        inputFileName      = argv[1];
+        inputFileCargoName = argv[2];
+        outputName         = argv[3];
+        cargo = true;
+    } else {
+        std::cerr << "Input format error" << std::endl;
+        std::cerr << "No cargo: (virus).pdb output" << std::endl;
+        std::cerr << "No cargo: (virus).pdb (cargo).pdb output" << std::endl;
+    }
     
     std::string outputTopName      = outputName + std::string(".top");
     std::string outputSpName       = outputName + std::string(".sp");
@@ -48,8 +83,10 @@ int main(int argc, char *argv[]){
     real rCut_ENM = 1;
     real rCut_BOND = 1.5;
     
+    int modelCountOffset = 0;
+    
     STRUCTURE pdbInput;
-    //STRUCTURE pdbOutput;
+    STRUCTURE pdbOutput;
     
     pdbInput.loadPDB(inputFileName);
     pdbInput.renumber();
@@ -60,14 +97,16 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    //coarseGrainedManager::coarseGrainedGenerator cg;
-    //cg.loadCGmodel("./RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","./RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
-    //
-    //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
+    #ifdef CG
+    coarseGrainedManager::coarseGrainedGenerator cg;
+    cg.loadCGmodel("./RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","./RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
+    
+    cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
+    #endif
     
     ////////////////////////////////////////////////////////////////////
     
-    for(MODEL&   mdl : pdbInput.model()){
+    for(MODEL&   mdl : pdbOutput.model()){
     for(CHAIN&   ch  : mdl.chain()  ){
     for(RESIDUE& res : ch.residue() ){
     for(ATOM&    atm : res.atom()   ){
@@ -76,19 +115,19 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    geometricTransformations::uniformScaling(pdbInput,0.1);
+    geometricTransformations::uniformScaling(pdbOutput,0.1);
     
     ////////////////////////////////////////////////////////////////////
     
     radiusManager rM;
     
     rM.loadRadiusData("aminoacidsRadius.dat");
-    rM.applyRadiusData(pdbInput);
+    rM.applyRadiusData(pdbOutput);
     
     massesManager mM;
     
     mM.loadMassesData("aminoacidsMasses.dat");
-    mM.applyMassesData(pdbInput);
+    mM.applyMassesData(pdbOutput);
     
     ////////////////////////////////////////////////////////////////////
     
@@ -96,7 +135,7 @@ int main(int argc, char *argv[]){
     
     atomType aTBuffer;
     
-    for(MODEL&   mdl : pdbInput.model()){
+    for(MODEL&   mdl : pdbOutput.model()){
     for(CHAIN&   ch  : mdl.chain()  ){
     for(RESIDUE& res : ch.residue() ){
     for(ATOM&    atm : res.atom()   ){
@@ -174,104 +213,9 @@ int main(int argc, char *argv[]){
         }
     }
     
-    //std::cin.get();
-    
-    
     ////////////////////////////////////////////////////////////////////
-    /*
-    for(int i = 0;    i<atomVector.size();i++){
-        
-        std::cout << "Check " << i+1 <<"/"<<atomVector.size() << std::endl;
-        
-        for(int j = i +1; j<atomVector.size();j++){
-            
-            if(atomVector[i].modelId != atomVector[j].modelId){
-                
-                real3 ri = atomVector[i].pos;
-                real3 rj = atomVector[j].pos;
-                real3 rij = rj - ri;
-                double r = sqrt(dot(rij,rij));
-                
-                double radius_i = atomVector[i].radius;
-                double radius_j = atomVector[j].radius;
-                
-                double diamEff  = (radius_i+radius_j);
-                       diamEff *= 1.122462;
-                
-                if(r <= diamEff){
-                    std::cout << "ERROR" << std::endl;
-                    std::exit(0);
-                }
-            }
-        }
-    }
-    */
-    ////////////////////////////////////////////////////////////////////
-    
-    /*
-    do{
-        
-        clashedVector.clear();
-        
-        for(int i = 0;    i<atomVector.size();i++){
-            
-            std::cout << "Clashed " << i+1 <<"/"<<atomVector.size() << std::endl;
-            
-            for(int j = i +1; j<atomVector.size();j++){
-                
-                if(atomVector[i].modelId != atomVector[j].modelId){
-                    
-                    real3 ri = atomVector[i].pos;
-                    real3 rj = atomVector[j].pos;
-                    real3 rij = rj - ri;
-                    double r = sqrt(dot(rij,rij));
-                    
-                    double radius_i = atomVector[i].radius;
-                    double radius_j = atomVector[j].radius;
-                    
-                    double diamEff  = (radius_i+radius_j);
-                           diamEff *= 1.122462;
-                    
-                    if(r <= diamEff){
-                        clashedVector.push_back({i,j,diamEff,r});
-                    }
-                }
-            }
-        }
-        
-        if(clashedVector.size()>0){
-            
-            std::cout << "sorting... " << std::endl;
-            std::sort(clashedVector.begin(),clashedVector.end());
-            
-            clashBuffer = clashedVector.back();
-            
-            double radius_i = atomVector[clashBuffer.i].radius;
-            double radius_j = atomVector[clashBuffer.j].radius;
-            
-            double diamEff  = (radius_i+radius_j);
-                   diamEff *= 1.122462;
-                   
-            double gamma = clashBuffer.r/(1.01*diamEff);
-            
-            std::cout << clashBuffer.r << " " << gamma << std::endl;
-            
-            atomVector[clashBuffer.i].radius*=gamma;
-            atomVector[clashBuffer.j].radius*=gamma;
-                
-        }
-        
-    } while(clashedVector.size()>0);
-    
-    */
-    
-    std::ofstream enmFile(outputENMName);
-    std::ofstream bondFile(outputGaussianName);
     
     int removedParticles_counter = 0;
-    int atomCount = 0;
-    int ENM_counter = 0;
-    int Gaussian_counter = 0;
     
     for(int i = 0;    i<atomVector.size();i++){
         if(atomVector[i].radius < 0.2){
@@ -281,6 +225,47 @@ int main(int argc, char *argv[]){
         }
     }
     
+    bool tooFarAway;
+    
+    for(int i = 0;    i<atomVector.size();i++){
+		
+		std::cout << "Removing too far away particles " << i+1 <<"/"<<atomVector.size() << std::endl;
+        
+        tooFarAway = true;
+        
+        for(int j = 0; j<atomVector.size() and tooFarAway;j++){
+			
+			if(atomVector[i].modelId == atomVector[j].modelId and i != j){
+			
+				real3 ri = atomVector[i].pos;
+				real3 rj = atomVector[j].pos;
+				real3 rij = rj - ri;
+				double r = sqrt(dot(rij,rij));
+                
+                if(r < rCut_ENM){
+					tooFarAway = false;
+				}
+				
+			}
+		}
+		
+		if(tooFarAway){
+			atomVector.erase(atomVector.begin()+i);
+            removedParticles_counter++;
+            i--;
+		}
+		
+	}
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    std::ofstream enmFile(outputENMName);
+    std::ofstream bondFile(outputGaussianName);
+    
+    int atomCount = 0;
+    int ENM_counter = 0;
+    int Gaussian_counter = 0;
+	
     for(atomType&  atm : atomVector){
         atm.serial = atomCount;
         atomCount ++;
@@ -342,15 +327,15 @@ int main(int argc, char *argv[]){
                 << std::setw(5)                    
                 << atm.resName                      << " " 
                 << std::setw(5)                    
-                << atm.modelId                      << " " 
+                << -1*atm.modelId                   << " " 
                 << std::setw(10)                   
                 << atm.mass                         << " " 
                 << std::setw(10)                   
                 << atm.radius                       << " " 
                 << std::setw(10)
+                << getCharge(atm.resName)           << " " 
+                << std::setw(10)
                 << atm.pos                          << std::endl;
-        
-        atomCount ++;
     }
     
     std::ofstream spFile(outputSpName);
@@ -362,9 +347,9 @@ int main(int argc, char *argv[]){
                 << std::setw(10)
                 << atm.pos                          << " "
                 << std::setw(10)                   
-                << real(1.122462)*atm.radius        << " " 
+                << atm.radius                       << " " 
                 << std::setw(5)                    
-                << atm.modelId                      << std::endl;
+                << -1*atm.modelId                   << std::endl;
     }
     
     ////////////////////////////////////////////////////////////////////
@@ -374,15 +359,143 @@ int main(int argc, char *argv[]){
     int status;
     std::stringstream ss;
     
-    ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
-    std::cout << ss.str() << std::endl;
-    status = std::system(ss.str().c_str());
-    
     ss.clear();
     ss.str(std::string());
     ss << "sed -i \'1s/^/" << Gaussian_counter <<"\\n/\' "<< outputGaussianName;
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
+    
+    ////////////////////////////////////////////////////////////////////
+    ///////////////////////////////CARGO////////////////////////////////
+    ////////////////////////////////////////////////////////////////////
+    
+    if(cargo){
+    
+        STRUCTURE pdbInputCargo;
+        STRUCTURE pdbOutputCargo;
+        
+        pdbInputCargo.loadPDB(inputFileCargoName);
+        pdbInputCargo.renumber();
+        
+        ////////////////////////////////////////////////////////////////////
+        
+        #ifdef CG    
+        cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInputCargo,pdbOutputCargo);
+        #endif
+        
+        ////////////////////////////////////////////////////////////////////
+        
+        for(MODEL&   mdl : pdbOutputCargo.model()){
+        for(CHAIN&   ch  : mdl.chain()  ){
+        for(RESIDUE& res : ch.residue() ){
+        for(ATOM&    atm : res.atom()   ){
+            atm.setAtomName(res.getResName());
+        }}}}
+        
+        ////////////////////////////////////////////////////////////////////
+        
+        geometricTransformations::uniformScaling(pdbOutputCargo,0.1);
+        
+        ////////////////////////////////////////////////////////////////////
+        
+        rM.applyRadiusData(pdbOutputCargo);
+        
+        mM.applyMassesData(pdbOutputCargo);
+        
+        ////////////////////////////////////////////////////////////////////
+        
+        std::vector<atomType> atomVectorCargo;
+        
+        for(MODEL&   mdl : pdbOutputCargo.model()){
+        for(CHAIN&   ch  : mdl.chain()  ){
+        for(RESIDUE& res : ch.residue() ){
+        for(ATOM&    atm : res.atom()   ){
+            
+            aTBuffer.serial  = atm.getAtomSerial();
+            aTBuffer.modelId = atm.getModelId();
+            aTBuffer.resName = atm.getResName();
+            aTBuffer.mass    = atm.getAtomMass();
+            aTBuffer.pos     = atm.getAtomCoord();
+            aTBuffer.radius  = atm.getAtomRadius();
+            
+            atomVectorCargo.push_back(aTBuffer);
+        }}}}
+        
+        for(atomType&  atm : atomVectorCargo){
+            atm.serial = atomCount;
+            atomCount ++;
+        }
+        
+        for(int i = 0;    i<atomVectorCargo.size();i++){
+            
+            std::cout << "Generating ENM (cargo) " << i+1 <<"/"<<atomVectorCargo.size() << std::endl;
+            
+            for(int j = i +1; j<atomVectorCargo.size();j++){
+                
+                real3 ri = atomVectorCargo[i].pos;
+                real3 rj = atomVectorCargo[j].pos;
+                real3 rij = rj - ri;
+                double r = sqrt(dot(rij,rij));
+                
+                if(atomVectorCargo[i].modelId == atomVectorCargo[j].modelId){
+                    
+                    if(r < rCut_ENM){
+                        
+                        enmFile << std::setw(10) << atomVectorCargo[i].serial <<
+                                   std::setw(10) << atomVectorCargo[j].serial <<
+                                   std::setprecision(6)                  <<
+                                   std::setw(12) << r                    << std::endl;
+                                   
+                        ENM_counter++;
+                        
+                    }
+                    
+                }
+            }
+        }
+        
+        for(atomType&  atm : atomVectorCargo){
+            topFile << std::right
+                    << std::fixed
+                    << std::setprecision(4)
+                    << std::setw(10)                   
+                    << atm.serial                       << " " 
+                    << std::setw(5)                    
+                    << atm.resName                      << " " 
+                    << std::setw(5)                    
+                    << atm.modelId                      << " " 
+                    << std::setw(10)                   
+                    << atm.mass                         << " " 
+                    << std::setw(10)                   
+                    << atm.radius                       << " " 
+                    << std::setw(10)
+                    << getCharge(atm.resName)           << " " 
+                    << std::setw(10)
+                    << atm.pos                          << std::endl;
+            
+            atomCount ++;
+        }
+        
+        for(atomType&  atm : atomVectorCargo){
+            spFile  << std::right
+                    << std::fixed
+                    << std::setprecision(4)
+                    << std::setw(10)
+                    << atm.pos                          << " "
+                    << std::setw(10)                   
+                    << atm.radius                       << " " 
+                    << std::setw(5)                    
+                    << atm.modelId                      << std::endl;
+        }
+    
+    }
+    
+    ss.clear();
+    ss.str(std::string());
+    ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
+    std::cout << ss.str() << std::endl;
+    status = std::system(ss.str().c_str());
+    
     
     return status;
     

@@ -107,6 +107,7 @@
                             ((Id, id, int))	           \
 							((MolId, molId, int))      \
                             ((Mass, mass, real))       \
+                            ((Charge, charge, real))       \
 			    			((Force, force, real4))    \
   			    			((Energy, energy, real))   \
 			    			((Vel, vel, real3))        \
