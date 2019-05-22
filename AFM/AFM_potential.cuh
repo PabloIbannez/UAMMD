@@ -12,6 +12,45 @@
 namespace uammd {
 namespace Potential {
     
+    namespace SASAmodel{
+        //SASA functions
+        struct A{
+            __device__ static real SASAweight(real SASAratio){
+                return real(1.0);
+            }
+        };
+        
+        struct B{
+            __device__ static real SASAweight(real SASAratio){
+                return tanhf(real(10)*tanf(SASAratio*M_PI_2));
+            }
+        };
+        
+        struct C{
+            __device__ static real SASAweight(real SASAratio){
+                return tanhf(real(5)*tanf(SASAratio*M_PI_2));
+            }
+        };
+        
+        struct D{
+            __device__ static real SASAweight(real SASAratio){
+                return tanhf(real(2)*tanf(SASAratio*M_PI_2));
+            }
+        };
+        
+        struct E{
+            __device__ static real SASAweight(real SASAratio){
+                return (real(1.0)+tanhf(real(2)*tanf(SASAratio*M_PI_2)))/real(2.0);
+            }
+        };
+        
+        struct F{
+            __device__ static real SASAweight(real SASAratio){
+                return (real(1.0)+tanhf(tanf(SASAratio*M_PI_2)))/real(2.0);
+            }
+        };
+    }
+    
     //2^(1/6) effective radius factor
     constexpr real _EFFR_F = 1.122462;
     constexpr real _EFFR_F2 = 1.259921;
@@ -38,6 +77,7 @@ namespace Potential {
         }
     };
     
+    template<class SASAmodel>
     class AFMPotential{
         
         using ParameterHandle = BasicParameterHandler<ProteinProteinParameters>;
@@ -157,7 +197,8 @@ namespace Potential {
             void setAllSteric(bool allS){
                 allSteric = allS;
             }
-        
+            
+            template<class SASA>
             class ForceTransverser {
                 
                 protected:
@@ -176,9 +217,10 @@ namespace Potential {
             
                     real4* force;
                     
-                    int* molId;
+                    int*  molId;
                     real* radius;
                     real* charge;
+                    real* SASAratio;
                     
                     bool allSteric;
                     
@@ -194,6 +236,7 @@ namespace Potential {
                                      int* molId,
                                      real* radius,
                                      real* charge,
+                                     real* SASAratio,
                                      bool allSteric):
                     typeParameters(tp),
                     box(box),
@@ -205,6 +248,7 @@ namespace Potential {
                     molId(molId),
                     radius(radius),
                     charge(charge),
+                    SASAratio(SASAratio),
                     allSteric(allSteric) {}
                     
                     
@@ -220,10 +264,11 @@ namespace Potential {
                         int  partMolId;
                         real radius;
                         real charge;
+                        real SASAratio;
                     };
             
                     inline __device__ Info getInfo(int pi) {
-                        return {molId[pi],radius[pi],charge[pi]};
+                        return {molId[pi],radius[pi],charge[pi],SASAratio[pi]};
                     }
             
                     inline __device__ real4 compute(const real4 &pi, const real4 &pj,
@@ -291,6 +336,8 @@ namespace Potential {
                                     fmod += A*exp(-r*invXi)*(invXi+invr);
                             }
                             
+                            fmod = fmod*SASA::SASAweight(infoi.SASAratio)*SASA::SASAweight(infoj.SASAratio);
+                            
                             return make_real4(-fmod*(r21*invr2),0);
                             
                         }
@@ -300,25 +347,27 @@ namespace Potential {
             };
             
             //Create and return a transverser
-            ForceTransverser getForceTransverser(Box box, shared_ptr<ParticleData> pd) {
+            ForceTransverser<SASAmodel> getForceTransverser(Box box, shared_ptr<ParticleData> pd) {
                 sys->log<System::DEBUG2>("[proteinPotential] ForceTransverser requested");
                 
-                auto force  = pd->getForce(access::location::gpu, access::mode::readwrite);
-                auto molId  = pd->getMolId(access::location::gpu, access::mode::read);
-                auto radius = pd->getRadius(access::location::gpu, access::mode::read);
-                auto charge = pd->getCharge(access::location::gpu, access::mode::read);
+                auto force     = pd->getForce(access::location::gpu, access::mode::readwrite);
+                auto molId     = pd->getMolId(access::location::gpu, access::mode::read);
+                auto radius    = pd->getRadius(access::location::gpu, access::mode::read);
+                auto charge    = pd->getCharge(access::location::gpu, access::mode::read);
+                auto SASAratio = pd->getSASAratio(access::location::gpu, access::mode::read);
             
-                return ForceTransverser(pairParameters->getIterator(),
-                                        box,
-                                        epsilon_wca,
-                                        gamma,
-                                        invfD,invXi,
-                                        cutOff2,
-                                        force.raw(),
-                                        molId.raw(),
-                                        radius.raw(),
-                                        charge.raw(),
-                                        allSteric);
+                return ForceTransverser<SASAmodel>(pairParameters->getIterator(),
+                                                   box,
+                                                   epsilon_wca,
+                                                   gamma,
+                                                   invfD,invXi,
+                                                   cutOff2,
+                                                   force.raw(),
+                                                   molId.raw(),
+                                                   radius.raw(),
+                                                   charge.raw(),
+                                                   SASAratio.raw(),
+                                                   allSteric);
             }
             
             /*

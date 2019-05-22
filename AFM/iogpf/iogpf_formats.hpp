@@ -201,6 +201,21 @@ namespace uammd{
                 #endif
             }
         };
+        
+        class SASAratio{
+        public:
+            void operator()(std::shared_ptr<ParticleData> pd, int& index, std::stringstream& ss){
+                real  _sR;
+                ss >> _sR;
+                
+                auto SASAratioArray = pd->getSASAratio(access::location::cpu, access::mode::readwrite);
+                SASAratioArray.raw()[index] = _sR;
+                
+                #ifdef DEBUG
+                std::cout << " sasaRatio[" << index << "]: " << SASAratioArray.raw()[index] ;
+                #endif
+            }
+        };
         /*
         class solvE{
         public:

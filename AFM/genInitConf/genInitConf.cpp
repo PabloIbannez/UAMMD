@@ -19,6 +19,7 @@ struct atomType{
     real mass;
     real3 pos;
 	real radius;
+    real SASA;
 };
 
 struct clash{
@@ -34,7 +35,45 @@ struct clash{
     }
 };
 
-#define CG
+struct caSASA{
+                                    
+    void mappingScheme(RESIDUE& resIn, RESIDUE& resOut, std::string const & beadName,std::vector<std::string>& beadComponents){
+        
+        ////////////////////////////////////////////////
+        
+        real3 pos = resIn.atom("CA").getAtomCoord();
+        
+        ////////////////////////////////////////////////
+        
+        real SASA = 0;
+        
+        for(auto& atm : resIn.atom()){
+            
+            std::string atmName = atm.getAtomName();
+            
+            if(atmName != "N"  and 
+               atmName != "CA" and 
+               atmName != "C"  and 
+               atmName != "O"){  //Only side-chain atoms
+                   
+                SASA += atm.getAtomSASA()/100.0; //From A^2 to nm^2
+            }
+        }
+        
+        ////////////////////////////////////////////////
+        
+        resOut.atom(beadName).setAtomCoord(pos);
+        resOut.atom(beadName).setAtomSASA(SASA);
+        
+        //Common properties
+        resOut.atom(beadName).setAtomAltLoc(" ");
+        resOut.atom(beadName).setAtomOccupancy(1);
+        resOut.atom(beadName).setAtomTempFactor(0);
+        resOut.atom(beadName).setAtomElement("");
+    }
+                                    
+};
+
 
 real getCharge(std::string& resName){
     
@@ -51,6 +90,48 @@ real getCharge(std::string& resName){
     }
     
 }
+
+class SASArandomCoil{
+    
+    real defaultValue = INFINITY;
+    
+    std::map<std::string,real> sasaMap;
+    
+    public:
+        
+        SASArandomCoil(std::string inputFileName){
+            
+            std::ifstream inputFile(inputFileName);
+                    
+            std::stringstream ss;
+            std::string line;
+            
+            std::string resName_buffer;
+            real SASA_buffer;
+            
+            while(std::getline(inputFile,line)) {
+                
+                ss.str(line);
+                
+                ss >> resName_buffer >> SASA_buffer;
+                
+                std::cout << resName_buffer << " " << SASA_buffer << std::endl;
+                
+                sasaMap[resName_buffer] = SASA_buffer;
+            }
+        }
+        
+        real getSASArandomCoil(std::string& resName){
+            if(sasaMap.count(resName)){
+                return sasaMap[resName];
+            } else {
+                std::cerr << "The SASA value for the resiude " << resName << " has not been added. I return the default value: " << defaultValue  << std::endl;
+                return defaultValue;
+            }
+        }
+};
+
+#define CG
 
 int main(int argc, char *argv[]){
     
@@ -103,7 +184,8 @@ int main(int argc, char *argv[]){
     coarseGrainedManager::coarseGrainedGenerator cg;
     cg.loadCGmodel("./RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","./RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
     
-    cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
+    //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
+    cg.applyCoarseGrainedMap<caSASA>(pdbInput,pdbOutput);
     #endif
     
     ////////////////////////////////////////////////////////////////////
@@ -131,6 +213,8 @@ int main(int argc, char *argv[]){
     mM.loadMassesData("aminoacidsMasses.dat");
     mM.applyMassesData(pdbOutput);
     
+    SASArandomCoil SRC("SASArandomCoil.dat");
+    
     ////////////////////////////////////////////////////////////////////
     
     std::vector<atomType> atomVector;
@@ -148,6 +232,7 @@ int main(int argc, char *argv[]){
         aTBuffer.mass    = atm.getAtomMass();
         aTBuffer.pos     = atm.getAtomCoord();
         aTBuffer.radius  = atm.getAtomRadius();
+        aTBuffer.SASA    = atm.getAtomSASA();
         
         atomVector.push_back(aTBuffer);
     }}}}
@@ -321,23 +406,29 @@ int main(int argc, char *argv[]){
     
     
     for(atomType&  atm : atomVector){
+        
+        real sasaRatio = atm.SASA/SRC.getSASArandomCoil(atm.resName); //Side chain !!!!
+        if(sasaRatio>1.0) {sasaRatio = 1.0;}
+        
         topFile << std::right
                 << std::fixed
                 << std::setprecision(4)
                 << std::setw(10)                   
-                << atm.serial                       << " " 
-                << std::setw(5)                    
-                << atm.resName                      << " " 
-                << std::setw(5)                    
-                << -1*atm.modelId                   << " " 
-                << std::setw(10)                   
-                << atm.mass                         << " " 
-                << std::setw(10)                   
-                << atm.radius                       << " " 
+                << atm.serial                                    << " " 
+                << std::setw(5)                                  
+                << atm.resName                                   << " " 
+                << std::setw(5)                                  
+                << -1*atm.modelId                                << " " 
+                << std::setw(10)                                 
+                << atm.mass                                      << " " 
+                << std::setw(10)                                 
+                << atm.radius                                    << " " 
+                << std::setw(10)                                 
+                << getCharge(atm.resName)                        << " " 
                 << std::setw(10)
-                << getCharge(atm.resName)           << " " 
+                << sasaRatio                                     << " " 
                 << std::setw(10)
-                << atm.pos                          << std::endl;
+                << atm.pos                                   << std::endl;
     }
     
     std::ofstream spFile(outputSpName);
@@ -382,7 +473,8 @@ int main(int argc, char *argv[]){
         ////////////////////////////////////////////////////////////////////
         
         #ifdef CG    
-        cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInputCargo,pdbOutputCargo);
+        //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInputCargo,pdbOutputCargo);
+        cg.applyCoarseGrainedMap<caSASA>(pdbInputCargo,pdbOutputCargo);
         #endif
         
         ////////////////////////////////////////////////////////////////////
@@ -457,6 +549,10 @@ int main(int argc, char *argv[]){
         }
         
         for(atomType&  atm : atomVectorCargo){
+            
+            real sasaRatio = atm.SASA/SRC.getSASArandomCoil(atm.resName); //Side chain !!!!
+            if(sasaRatio>1.0) {sasaRatio = 1.0;}
+            
             topFile << std::right
                     << std::fixed
                     << std::setprecision(4)
@@ -472,6 +568,8 @@ int main(int argc, char *argv[]){
                     << atm.radius                       << " " 
                     << std::setw(10)
                     << getCharge(atm.resName)           << " " 
+                    << std::setw(10)
+                    << sasaRatio                        << " " 
                     << std::setw(10)
                     << atm.pos                          << std::endl;
             

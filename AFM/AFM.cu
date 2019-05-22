@@ -297,11 +297,17 @@ void outputState(std::ofstream& os,
     fori(0,pd->getNumParticles()){
         
         if(mId.raw()[sortedIndex[i]] < 0){
+            /*
             if(box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]])).x < 0){
                 os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
 		            << radius.raw()[sortedIndex[i]]                          <<  " "
 		            << mId.raw()[sortedIndex[i]]                             <<  std::endl;
             }
+            */
+            os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
+                << radius.raw()[sortedIndex[i]]                          <<  " "
+                << mId.raw()[sortedIndex[i]]                             <<  std::endl;
+                
         } else {
             os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
 		        << radius.raw()[sortedIndex[i]]                          <<  " "
@@ -420,8 +426,7 @@ int main(int argc, char *argv[]){
     
     real kTip;
     real harmonicWallTip;
-
-    real tipInitHeight;
+    
     real initialVirusTipSep;
     
     real tipHorizontalDisplacement;
@@ -541,8 +546,6 @@ int main(int argc, char *argv[]){
         if(!(inputFile.getOption("harmonicWallTip")>>harmonicWallTip))
         {sys->log<System::CRITICAL>("harmonicWallTip option has not been introduced properly.");}
                                                             
-        if(!(inputFile.getOption("tipInitHeight")>>tipInitHeight))
-        {sys->log<System::CRITICAL>("tipInitHeight option has not been introduced properly.");}
         if(!(inputFile.getOption("initialVirusTipSep")>>initialVirusTipSep))
         {sys->log<System::CRITICAL>("initialVirusTipSep option has not been introduced properly.");}
         
@@ -624,7 +627,8 @@ int main(int argc, char *argv[]){
     aminoMap.applyMap2File(inputTop,inputTop + std::string("P"));
     aminoMap.applyMap2File(partInteractionData,partInteractionData + std::string("P"));
     
-    ullint seed = 0xf31337Bada55D00dULL;
+    //ullint seed = 0xf31337Bada55D00dULL;
+    ullint seed = time(NULL);
     sys->rng().setSeed(seed);
     
     ///////////////////////////INPUT DATA///////////////////////////////
@@ -636,6 +640,7 @@ int main(int argc, char *argv[]){
                           iogpf::mass,
                           iogpf::radius,
                           iogpf::charge,
+                          iogpf::SASAratio,
                           iogpf::pos>(sys,inputTop + std::string("P"));
                           
     int N = pd->getNumParticles();
@@ -681,11 +686,17 @@ int main(int argc, char *argv[]){
             }
         }
         
-        cutOff = std::max(gamma*real(2)*maxRadius*cutOffFactorLJ,debyeLenght*cutOffFactorDebye);
+        if(!allSteric){
+            cutOff = std::max(gamma*real(2)*maxRadius*cutOffFactorLJ,debyeLenght*cutOffFactorDebye);
+        } else {
+            cutOff = real(1.122462)*real(2)*maxRadius*real(1.05);
+        }
     
     }
     
-    Potential::AFMPotential::Parameters paramsPF;
+    using SASAmodel = Potential::SASAmodel::C;
+    
+    Potential::AFMPotential<SASAmodel>::Parameters paramsPF;
     
     paramsPF.kBT = kBT;
 
@@ -703,13 +714,11 @@ int main(int argc, char *argv[]){
 
     paramsPF.cutOff = cutOff;
     
-    auto potPairForces = std::make_shared<Potential::AFMPotential>(sys,paramsPF);
+    auto potPairForces = std::make_shared<Potential::AFMPotential<SASAmodel>>(sys,paramsPF);
     
-    using PairForces = PairForces<Potential::AFMPotential, CellList>;
-    
-    PairForces::Parameters params;
+    PairForces<Potential::AFMPotential<SASAmodel>, CellList>::Parameters params;
     params.box = box;  //Box to work on
-    auto pairforces = std::make_shared<PairForces>(pd, pgAll, sys, params, potPairForces);
+    auto pairforces = std::make_shared<PairForces<Potential::AFMPotential<SASAmodel>, CellList>>(pd, pgAll, sys, params, potPairForces);
     
     /////////////////////EXTERNAL INTERACTORS///////////////////////////
     ////////////////////////////////////////////////////////////////////
@@ -755,7 +764,7 @@ int main(int argc, char *argv[]){
     Timer tim;
     tim.tic();
     
-    ////////////////////////DOWNWARD//////////////////////////////
+    ////////////////////////DOWNWARD////////////////////////////////////
     
     {
 		NVT::Parameters parDown;

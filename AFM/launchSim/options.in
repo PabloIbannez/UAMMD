@@ -40,27 +40,26 @@ wallEpsilon 1
 tipMass 10000.0
 tipRadius 20.0
 
-kTip 200.0
+kTip 30.0
 harmonicWallTip 100.0
     
 tipRadius 20.0
 tipEpsilon 1.0
 
-tipInitHeight 30.0
-initialVirusTipSep 1.0
-
 tipHorizontalDisplacement 0.0
+
+initialVirusTipSep 1
 
 #Downward force
 downwardForce -0.01
 
 #Downward
-nstepsDownward 0
+nstepsDownward 10000
 printStepsDownward 10000
 
 #Thermalization
 nstepsTerm 10000
-printStepsTerm 100
+printStepsTerm 2500
 
 #Simulation
 nsteps 2000000000
@@ -77,6 +76,4 @@ maxIndentation 10.0
 maxIndentationForce 15.0
 
 #Integrator
-temperature 2.479
 dt 0.01
-viscosity 0.1

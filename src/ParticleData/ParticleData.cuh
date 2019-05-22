@@ -111,7 +111,9 @@
 			    			((Force, force, real4))    \
   			    			((Energy, energy, real))   \
 			    			((Vel, vel, real3))        \
-  			    			((Radius, radius, real))   
+  			    			((Radius, radius, real))   \
+  			    			((SASAratio, SASAratio, real))   
+                            
 /*
 			    ((Torque, torque, real4))  \
   			    ((AngVel, angVel, real4))  \
