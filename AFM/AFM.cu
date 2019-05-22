@@ -358,6 +358,18 @@ void outputState_TipWall(std::ofstream& os,
        << 0                          << std::endl;
 }
 
+class virusSelector{
+    
+    public:    
+    
+        virusSelector(){}
+
+        bool isSelected(int particleIndex, shared_ptr<ParticleData> &pd){
+            int molId = (pd->getMolId(access::cpu, access::read).raw())[particleIndex];
+            return molId < 0;
+        }
+};
+
 using NVT     = VerletNVT::GronbechJensen;
 using NVT_AFM = AFM::AFM_integrator::AFM_integrator;
 
@@ -650,6 +662,9 @@ int main(int argc, char *argv[]){
     
     auto pgAll = std::make_shared<ParticleGroup>(pd, sys, "All");
     
+    virusSelector vSel;
+    auto pgVirus = std::make_shared<ParticleGroup>(vSel,pd, sys, "Virus");
+    
     /////////////////////INTERNAL INTERACTORS///////////////////////////
     ////////////////////////////////////////////////////////////////////
     
@@ -749,7 +764,7 @@ int main(int argc, char *argv[]){
     auto extWall = std::make_shared<ExternalForces<wall>>(pd, pgAll, sys,std::make_shared<wall>(wallZ,wallRadius,wallEpsilon));
     
     //DOWNWARD FORCE 
-	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgAll, sys,std::make_shared<ConstantForce>(downwardForce));
+	auto downwardForceVirus = std::make_shared<ExternalForces<ConstantForce>>(pd, pgVirus, sys,std::make_shared<ConstantForce>(downwardForce));
     
     ////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////
