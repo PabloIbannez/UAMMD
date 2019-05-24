@@ -174,9 +174,9 @@ int main(int argc, char *argv[]){
     pdbInput.loadPDB(inputFileName);
     pdbInput.renumber();
     
-    real3 center = computeCentroid(pdbInput);
-    geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
-    geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
+    //real3 center = computeCentroid(pdbInput);
+    //geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
+    //geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
     
     ////////////////////////////////////////////////////////////////////
     

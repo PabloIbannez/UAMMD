@@ -22,31 +22,36 @@ namespace Potential {
         
         struct B{
             __device__ static real SASAweight(real SASAratio){
-                return tanhf(real(10)*tanf(SASAratio*M_PI_2));
+                real w = tanhf(real(10)*tanf(SASAratio*M_PI_2));
+                return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct C{
             __device__ static real SASAweight(real SASAratio){
-                return tanhf(real(5)*tanf(SASAratio*M_PI_2));
+                real w = tanhf(real(5)*tanf(SASAratio*M_PI_2));
+                return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct D{
             __device__ static real SASAweight(real SASAratio){
-                return tanhf(real(2)*tanf(SASAratio*M_PI_2));
+                real w = tanhf(real(2)*tanf(SASAratio*M_PI_2));
+                return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct E{
             __device__ static real SASAweight(real SASAratio){
-                return (real(1.0)+tanhf(real(2)*tanf(SASAratio*M_PI_2)))/real(2.0);
+                real w = (real(1.0)+tanhf(real(2)*tanf(SASAratio*M_PI_2)))/real(2.0);
+                return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct F{
             __device__ static real SASAweight(real SASAratio){
-                return (real(1.0)+tanhf(tanf(SASAratio*M_PI_2)))/real(2.0);
+                real w = (real(1.0)+tanhf(tanf(SASAratio*M_PI_2)))/real(2.0);
+                return w<real(0.0)?real(1.0):w;
             }
         };
     }
@@ -109,7 +114,7 @@ namespace Potential {
             real debyeLenght;
             real dielectricConstant;
             
-            real invfD; //1/(f*dielectricConstant)
+            real finvD; //f/(dielectricConstant)
             real invXi; //1/debyeLenght
             
             real cutOff;
@@ -147,7 +152,7 @@ namespace Potential {
                                                                       partInteractionData(par.partInteractionData),
                                                                       epsilon_0(par.epsilon_0),lambda(par.lambda),gamma(par.gamma),
                                                                       f(par.f),debyeLenght(par.debyeLenght),dielectricConstant(par.dielectricConstant),
-                                                                      invfD(real(1.0)/(f*dielectricConstant)),invXi(real(1.0)/debyeLenght),
+                                                                      finvD(f/dielectricConstant),invXi(real(1.0)/debyeLenght),
                                                                       cutOff(par.cutOff),cutOff2(par.cutOff*par.cutOff)
             {
                 sys->log<System::MESSAGE>("[AFMPotential] Initialized");
@@ -210,7 +215,7 @@ namespace Potential {
                     
                     real gamma;
                     
-                    real invfD;
+                    real finvD;
                     real invXi;
                     
                     real cutOff2;
@@ -230,7 +235,7 @@ namespace Potential {
                                      Box box,
                                      real epsilon_wca,
                                      real gamma,
-                                     real invfD,real invXi,
+                                     real finvD,real invXi,
                                      real cutOff2,
                                      real4* force,
                                      int* molId,
@@ -242,7 +247,7 @@ namespace Potential {
                     box(box),
                     epsilon_wca(epsilon_wca),
                     gamma(gamma),
-                    invfD(invfD),invXi(invXi),
+                    finvD(finvD),invXi(invXi),
                     cutOff2(cutOff2),
                     force(force), 
                     molId(molId),
@@ -310,6 +315,12 @@ namespace Potential {
                             
                         } else {
                             
+                            
+                            real SASAfactor = SASA::SASAweight(infoi.SASAratio)*SASA::SASAweight(infoj.SASAratio);
+                            if(SASAfactor == real(0.0)){
+                                return make_real4(0);
+                            }
+                            
                             real fmod = real(0);
                             
                             if(params.epsilon < real(0)){
@@ -324,11 +335,11 @@ namespace Potential {
                                     fmod -= real(4*6)*params.epsilon*(real(2)*Dinvr12-Dinvr6);
                                 }
                             }
-                                
+                            
                             real chgProduct = infoi.charge*infoj.charge;
                             if(chgProduct != real(0)){
                                 
-                                    const real A = chgProduct*invfD;
+                                    const real A = chgProduct*finvD;
                                     
                                     real r    = sqrt(r2);
                                     real invr = real(1.0)/r;
@@ -336,7 +347,7 @@ namespace Potential {
                                     fmod += A*exp(-r*invXi)*(invXi+invr);
                             }
                             
-                            fmod = fmod*SASA::SASAweight(infoi.SASAratio)*SASA::SASAweight(infoj.SASAratio);
+                            fmod = fmod*SASAfactor;
                             
                             return make_real4(-fmod*(r21*invr2),0);
                             
@@ -360,7 +371,7 @@ namespace Potential {
                                                    box,
                                                    epsilon_wca,
                                                    gamma,
-                                                   invfD,invXi,
+                                                   finvD,invXi,
                                                    cutOff2,
                                                    force.raw(),
                                                    molId.raw(),

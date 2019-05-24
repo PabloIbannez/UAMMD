@@ -639,8 +639,8 @@ int main(int argc, char *argv[]){
     aminoMap.applyMap2File(inputTop,inputTop + std::string("P"));
     aminoMap.applyMap2File(partInteractionData,partInteractionData + std::string("P"));
     
-    //ullint seed = 0xf31337Bada55D00dULL;
-    ullint seed = time(NULL);
+    ullint seed = 0xf31337Bada55D00dULL;
+    //ullint seed = time(NULL);
     sys->rng().setSeed(seed);
     
     ///////////////////////////INPUT DATA///////////////////////////////
@@ -801,6 +801,8 @@ int main(int argc, char *argv[]){
                          wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
+        
+        sys->log<System::MESSAGE>("Downward process starts");
 		
 		forj(0,nstepsDownward){
 			verletDown->forwardTime();
@@ -815,6 +817,8 @@ int main(int argc, char *argv[]){
 				pd->sortParticles();
 			}
 		}
+        
+        sys->log<System::MESSAGE>("Downward process ends");
 	}
 	
     ////////////////////////////RUN/////////////////////////////////////
@@ -888,6 +892,8 @@ int main(int argc, char *argv[]){
         
         potPairForces->setAllSteric(allSteric);
         
+        sys->log<System::MESSAGE>("Thermalization stars");
+        
         //Thermalization
         forj(0,nstepsTerm){
 			verlet->forwardTime();
@@ -904,6 +910,10 @@ int main(int argc, char *argv[]){
 				pd->sortParticles();
 			}
 		}
+        
+        sys->log<System::MESSAGE>("Thermalization ends");
+        
+        sys->log<System::MESSAGE>("Simulation starts");
         
 		
 		//Run the simulation
@@ -954,6 +964,8 @@ int main(int argc, char *argv[]){
 				pd->sortParticles();
 			}
 		}
+        
+        sys->log<System::MESSAGE>("Simulation ends");
     
 	}
 	
