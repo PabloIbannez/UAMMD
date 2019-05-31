@@ -939,7 +939,7 @@ int main(int argc, char *argv[]){
                 real currentTipPositionEq = verlet->getTipPositionEq();
                 verlet->setTipPositionEq(currentTipPositionEq-descentDistace);
                 
-                if(verlet->getTipPositionEq() < maxIndentation){break;}
+                if(verlet->getTipPosition().z < maxIndentation){break;}
                 
                 //Thermalization
                 forj(0,nstepsTerm){

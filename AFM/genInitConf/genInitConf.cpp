@@ -174,9 +174,9 @@ int main(int argc, char *argv[]){
     pdbInput.loadPDB(inputFileName);
     pdbInput.renumber();
     
-    //real3 center = computeCentroid(pdbInput);
-    //geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
-    //geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
+    real3 center = computeCentroid(pdbInput);
+    geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
+    geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
     
     ////////////////////////////////////////////////////////////////////
     
@@ -472,7 +472,7 @@ int main(int argc, char *argv[]){
         
         ////////////////////////////////////////////////////////////////////
         
-        #ifdef CG    
+    #ifdef CG    
         //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInputCargo,pdbOutputCargo);
         cg.applyCoarseGrainedMap<caSASA>(pdbInputCargo,pdbOutputCargo);
         #endif
@@ -491,7 +491,10 @@ int main(int argc, char *argv[]){
         geometricTransformations::uniformScaling(pdbOutputCargo,0.1);
         
         ////////////////////////////////////////////////////////////////////
-        
+       
+    real3 centerCargo = computeCentroid(pdbOutputCargo);
+    geometricTransformations::rotation(pdbOutputCargo,centerCargo,{1,0,0},99.0*(M_PI/180.0));
+
         rM.applyRadiusData(pdbOutputCargo);
         
         mM.applyMassesData(pdbOutputCargo);
