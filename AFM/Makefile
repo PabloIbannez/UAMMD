@@ -15,7 +15,7 @@ CXX=g++
 CUDA_VER=
 
 ifeq ($(CUDA_VER),)
-CUDA_VER:=$(shell ls -d /usr/local/cuda*/ | grep -Eo '\-[0-9]\.[0-9]' | cut -d- -f2 | sort -grk1 | head -1)
+CUDA_VER:=$(shell ls -d /usr/local/cuda*/ | grep -Eo '\-[0-9]*[0-9]\.[0-9]' | cut -d- -f2 | sort -grk1 | head -1)
 endif
 CUDA_ROOT=/usr/local/cuda-$(CUDA_VER)
 
@@ -45,6 +45,7 @@ BASIC_LINE= $(CUDA_ROOT)/bin/nvcc   -O3 -std=c++11 -x cu    $(INCLUDEFLAGS) $(OP
 protein:
 	$(BASIC_LINE) AFM.cu -o AFM
 	cp AFM ./launchSim
+	cp AFM ./launchSim/sim*
 
 
 

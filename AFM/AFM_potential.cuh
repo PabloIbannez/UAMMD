@@ -15,41 +15,41 @@ namespace Potential {
     namespace SASAmodel{
         //SASA functions
         struct A{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 return real(1.0);
             }
         };
         
         struct B{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 real w = tanhf(real(10)*tanf(SASAratio*M_PI_2));
                 return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct C{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 real w = tanhf(real(5)*tanf(SASAratio*M_PI_2));
                 return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct D{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 real w = tanhf(real(2)*tanf(SASAratio*M_PI_2));
                 return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct E{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 real w = (real(1.0)+tanhf(real(2)*tanf(SASAratio*M_PI_2)))/real(2.0);
                 return w<real(0.0)?real(1.0):w;
             }
         };
         
         struct F{
-            __device__ static real SASAweight(real SASAratio){
+            __device__ inline static real SASAweight(real SASAratio){
                 real w = (real(1.0)+tanhf(tanf(SASAratio*M_PI_2)))/real(2.0);
                 return w<real(0.0)?real(1.0):w;
             }

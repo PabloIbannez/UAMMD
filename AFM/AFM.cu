@@ -709,7 +709,7 @@ int main(int argc, char *argv[]){
     
     }
     
-    using SASAmodel = Potential::SASAmodel::C;
+    using SASAmodel = Potential::SASAmodel::A;
     
     Potential::AFMPotential<SASAmodel>::Parameters paramsPF;
     
