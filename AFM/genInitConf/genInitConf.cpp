@@ -1,141 +1,11 @@
-#include <proteinManager/proteinManager.hpp>
-#include <proteinManager/tools/geometricTransformations.hpp>
-#include <proteinManager/tools/centroid.hpp>
-#include <proteinManager/tools/massesManager.hpp>
-#include <proteinManager/tools/radiusManager.hpp>
-#include <proteinManager/tools/centerOfMass.hpp>
-#include <proteinManager/tools/coarseGrainedManager.hpp>
-#include <proteinManager/tools/enm.hpp>
-
-using namespace proteinManager;
-
-struct atomType{
-	
-    int serial;
-    int modelId;
-    std::string chainId;
-    std::string resName;
-    int resSeq;
-    real mass;
-    real3 pos;
-	real radius;
-    real SASA;
-};
-
-struct clash{
-    
-    int i;
-    int j;
-    double rmin;
-    double r;
-    
-    bool operator<(const clash& rhs) const
-    {
-        return (r < rhs.r);
-    }
-};
-
-struct caSASA{
-                                    
-    void mappingScheme(RESIDUE& resIn, RESIDUE& resOut, std::string const & beadName,std::vector<std::string>& beadComponents){
-        
-        ////////////////////////////////////////////////
-        
-        real3 pos = resIn.atom("CA").getAtomCoord();
-        
-        ////////////////////////////////////////////////
-        
-        real SASA = 0;
-        
-        for(auto& atm : resIn.atom()){
-            
-            std::string atmName = atm.getAtomName();
-            
-            if(atmName != "N"  and 
-               atmName != "CA" and 
-               atmName != "C"  and 
-               atmName != "O"){  //Only side-chain atoms
-                   
-                SASA += atm.getAtomSASA()/100.0; //From A^2 to nm^2
-            }
-        }
-        
-        ////////////////////////////////////////////////
-        
-        resOut.atom(beadName).setAtomCoord(pos);
-        resOut.atom(beadName).setAtomSASA(SASA);
-        
-        //Common properties
-        resOut.atom(beadName).setAtomAltLoc(" ");
-        resOut.atom(beadName).setAtomOccupancy(1);
-        resOut.atom(beadName).setAtomTempFactor(0);
-        resOut.atom(beadName).setAtomElement("");
-    }
-                                    
-};
-
-
-real getCharge(std::string& resName){
-    
-    if(resName == "LYS" or resName == "ARG"){
-        return 1.0;
-    }
-    
-    if(resName == "ASP" or resName == "GLU"){
-        return -1.0;
-    }
-    
-    if(resName == "HIS"){
-        return 0.5;
-    }
-    
-}
-
-class SASArandomCoil{
-    
-    real defaultValue = INFINITY;
-    
-    std::map<std::string,real> sasaMap;
-    
-    public:
-        
-        SASArandomCoil(std::string inputFileName){
-            
-            std::ifstream inputFile(inputFileName);
-                    
-            std::stringstream ss;
-            std::string line;
-            
-            std::string resName_buffer;
-            real SASA_buffer;
-            
-            while(std::getline(inputFile,line)) {
-                
-                ss.str(line);
-                
-                ss >> resName_buffer >> SASA_buffer;
-                
-                std::cout << resName_buffer << " " << SASA_buffer << std::endl;
-                
-                sasaMap[resName_buffer] = SASA_buffer;
-            }
-        }
-        
-        real getSASArandomCoil(std::string& resName){
-            if(sasaMap.count(resName)){
-                return sasaMap[resName];
-            } else {
-                std::cerr << "The SASA value for the resiude " << resName << " has not been added. I return the default value: " << defaultValue  << std::endl;
-                return defaultValue;
-            }
-        }
-};
+#include <common.h>
 
 #define CG
 
+real rCut_ENM = 1;
+real rCut_BOND = 1.5;
+
 int main(int argc, char *argv[]){
-    
-    bool cargo;
     
     std::string inputFileName;
     std::string inputFileCargoName;
@@ -144,16 +14,9 @@ int main(int argc, char *argv[]){
     if(argc == 3){
         inputFileName = argv[1];
         outputName    = argv[2];
-        cargo = false;
-    } else if(argc == 4){
-        inputFileName      = argv[1];
-        inputFileCargoName = argv[2];
-        outputName         = argv[3];
-        cargo = true;
     } else {
         std::cerr << "Input format error" << std::endl;
-        std::cerr << "No cargo: (virus).pdb output" << std::endl;
-        std::cerr << "Cargo: (virus).pdb (cargo).pdb output" << std::endl;
+        std::cerr << "Format: (virus).pdb output" << std::endl;
         
         return EXIT_FAILURE;
     }
@@ -163,32 +26,41 @@ int main(int argc, char *argv[]){
     std::string outputENMName      = outputName + std::string(".enm");
     std::string outputGaussianName = outputName + std::string(".gaussian");
     
-    real rCut_ENM = 1;
-    real rCut_BOND = 1.5;
+    ////////////////////////////////////////////////////////////////////
     
-    int modelCountOffset = 0;
+    std::ofstream topFile(outputTopName);
+    std::ofstream enmFile(outputENMName);
+    std::ofstream bondFile(outputGaussianName);
+    std::ofstream spFile(outputSpName);
     
+    ////////////////////////////////////////////////////////////////////
+
     STRUCTURE pdbInput;
     STRUCTURE pdbOutput;
     
     pdbInput.loadPDB(inputFileName);
     pdbInput.renumber();
     
-    real3 center = computeCentroid(pdbInput);
-    geometricTransformations::rotation(pdbInput,center,{1,0,0},34.0*(M_PI/180.0));
-    geometricTransformations::rotation(pdbInput,center,{0,1,0},13.0*(M_PI/180.0));
-    
     ////////////////////////////////////////////////////////////////////
     
     #ifdef CG
     coarseGrainedManager::coarseGrainedGenerator cg;
-    cg.loadCGmodel("./RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","./RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
+    cg.loadCGmodel("../RES2BEAD_noH/aminoAcid2bead_RES2BEAD_noH.map","../RES2BEAD_noH/bead2atom_RES2BEAD_noH.map");
     
     //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInput,pdbOutput);
     cg.applyCoarseGrainedMap<caSASA>(pdbInput,pdbOutput);
     #endif
     
     ////////////////////////////////////////////////////////////////////
+    
+    geometricTransformations::uniformScaling(pdbOutput,0.1);
+    
+    real3 center = computeCentroid(pdbOutput);
+    geometricTransformations::rotation(pdbOutput,center,{1,0,0},34.0*(M_PI/180.0));
+    geometricTransformations::rotation(pdbOutput,center,{0,1,0},13.0*(M_PI/180.0));
+    
+    ////////////////////////////////////////////////////////////////////
+    
     
     for(MODEL&   mdl : pdbOutput.model()){
     for(CHAIN&   ch  : mdl.chain()  ){
@@ -199,21 +71,17 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    geometricTransformations::uniformScaling(pdbOutput,0.1);
-    
-    ////////////////////////////////////////////////////////////////////
-    
     radiusManager rM;
     
-    rM.loadRadiusData("aminoacidsRadius.dat");
+    rM.loadRadiusData("../aminoacidsRadius.dat");
     rM.applyRadiusData(pdbOutput);
     
     massesManager mM;
     
-    mM.loadMassesData("aminoacidsMasses.dat");
+    mM.loadMassesData("../aminoacidsMasses.dat");
     mM.applyMassesData(pdbOutput);
     
-    SASArandomCoil SRC("SASArandomCoil.dat");
+    SASArandomCoil SRC("../SASArandomCoil.dat");
     
     ////////////////////////////////////////////////////////////////////
     
@@ -236,6 +104,8 @@ int main(int argc, char *argv[]){
         
         atomVector.push_back(aTBuffer);
     }}}}
+    
+    ////////////////////////////////////////////////////////////////////
     
     std::vector<clash> clashedVector;
     clash clashBuffer;
@@ -346,16 +216,56 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    std::ofstream enmFile(outputENMName);
-    std::ofstream bondFile(outputGaussianName);
-    
     int atomCount = 0;
-    int ENM_counter = 0;
-    int Gaussian_counter = 0;
-	
+    
     for(atomType&  atm : atomVector){
         atm.serial = atomCount;
         atomCount ++;
+    }
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    int ENM_counter = 0;
+    int Gaussian_counter = 0;
+    
+    ////////////////////////////////////////////////////////////////////
+    
+    for(atomType&  atm : atomVector){
+        
+        real sasaRatio = atm.SASA/SRC.getSASArandomCoil(atm.resName); //Side chain !!!!
+        if(sasaRatio>1.0) {sasaRatio = 1.0;}
+        
+        topFile << std::right
+                << std::fixed
+                << std::setprecision(4)
+                << std::setw(10)                   
+                << atm.serial                                    << " " 
+                << std::setw(5)                                  
+                << atm.resName                                   << " " 
+                << std::setw(5)                                  
+                << -1*atm.modelId                                << " " 
+                << std::setw(10)                                 
+                << atm.mass                                      << " " 
+                << std::setw(10)                                 
+                << atm.radius                                    << " " 
+                << std::setw(10)                                 
+                << getCharge(atm.resName)                        << " " 
+                << std::setw(10)
+                << sasaRatio                                     << " " 
+                << std::setw(10)
+                << atm.pos                                   << std::endl;
+    }
+    
+    for(atomType&  atm : atomVector){
+        spFile  << std::right
+                << std::fixed
+                << std::setprecision(4)
+                << std::setw(10)
+                << atm.pos                          << " "
+                << std::setw(10)                   
+                << atm.radius                       << " " 
+                << std::setw(5)                    
+                << -1*atm.modelId                   << std::endl;
     }
     
     for(int i = 0;    i<atomVector.size();i++){
@@ -402,51 +312,6 @@ int main(int argc, char *argv[]){
     
     ////////////////////////////////////////////////////////////////////
     
-    std::ofstream topFile(outputTopName);
-    
-    
-    for(atomType&  atm : atomVector){
-        
-        real sasaRatio = atm.SASA/SRC.getSASArandomCoil(atm.resName); //Side chain !!!!
-        if(sasaRatio>1.0) {sasaRatio = 1.0;}
-        
-        topFile << std::right
-                << std::fixed
-                << std::setprecision(4)
-                << std::setw(10)                   
-                << atm.serial                                    << " " 
-                << std::setw(5)                                  
-                << atm.resName                                   << " " 
-                << std::setw(5)                                  
-                << -1*atm.modelId                                << " " 
-                << std::setw(10)                                 
-                << atm.mass                                      << " " 
-                << std::setw(10)                                 
-                << atm.radius                                    << " " 
-                << std::setw(10)                                 
-                << getCharge(atm.resName)                        << " " 
-                << std::setw(10)
-                << sasaRatio                                     << " " 
-                << std::setw(10)
-                << atm.pos                                   << std::endl;
-    }
-    
-    std::ofstream spFile(outputSpName);
-    
-    for(atomType&  atm : atomVector){
-        spFile  << std::right
-                << std::fixed
-                << std::setprecision(4)
-                << std::setw(10)
-                << atm.pos                          << " "
-                << std::setw(10)                   
-                << atm.radius                       << " " 
-                << std::setw(5)                    
-                << -1*atm.modelId                   << std::endl;
-    }
-    
-    ////////////////////////////////////////////////////////////////////
-    
     std::cout << "Removed particles: " << removedParticles_counter << std::endl;
     
     int status;
@@ -458,147 +323,11 @@ int main(int argc, char *argv[]){
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     
-    ////////////////////////////////////////////////////////////////////
-    ///////////////////////////////CARGO////////////////////////////////
-    ////////////////////////////////////////////////////////////////////
-    
-    if(cargo){
-    
-        STRUCTURE pdbInputCargo;
-        STRUCTURE pdbOutputCargo;
-        
-        pdbInputCargo.loadPDB(inputFileCargoName);
-        pdbInputCargo.renumber();
-        
-        ////////////////////////////////////////////////////////////////////
-        
-    #ifdef CG    
-        //cg.applyCoarseGrainedMap<proteinManager::coarseGrainedManager::coarseGrainedMappingSchemes::ca>(pdbInputCargo,pdbOutputCargo);
-        cg.applyCoarseGrainedMap<caSASA>(pdbInputCargo,pdbOutputCargo);
-        #endif
-        
-        ////////////////////////////////////////////////////////////////////
-        
-        for(MODEL&   mdl : pdbOutputCargo.model()){
-        for(CHAIN&   ch  : mdl.chain()  ){
-        for(RESIDUE& res : ch.residue() ){
-        for(ATOM&    atm : res.atom()   ){
-            atm.setAtomName(res.getResName());
-        }}}}
-        
-        ////////////////////////////////////////////////////////////////////
-        
-        geometricTransformations::uniformScaling(pdbOutputCargo,0.1);
-        
-        ////////////////////////////////////////////////////////////////////
-       
-    real3 centerCargo = computeCentroid(pdbOutputCargo);
-    geometricTransformations::rotation(pdbOutputCargo,centerCargo,{1,0,0},99.0*(M_PI/180.0));
-
-        rM.applyRadiusData(pdbOutputCargo);
-        
-        mM.applyMassesData(pdbOutputCargo);
-        
-        ////////////////////////////////////////////////////////////////////
-        
-        std::vector<atomType> atomVectorCargo;
-        
-        for(MODEL&   mdl : pdbOutputCargo.model()){
-        for(CHAIN&   ch  : mdl.chain()  ){
-        for(RESIDUE& res : ch.residue() ){
-        for(ATOM&    atm : res.atom()   ){
-            
-            aTBuffer.serial  = atm.getAtomSerial();
-            aTBuffer.modelId = atm.getModelId();
-            aTBuffer.resName = atm.getResName();
-            aTBuffer.mass    = atm.getAtomMass();
-            aTBuffer.pos     = atm.getAtomCoord();
-            aTBuffer.radius  = atm.getAtomRadius();
-            
-            atomVectorCargo.push_back(aTBuffer);
-        }}}}
-        
-        for(atomType&  atm : atomVectorCargo){
-            atm.serial = atomCount;
-            atomCount ++;
-        }
-        
-        for(int i = 0;    i<atomVectorCargo.size();i++){
-            
-            std::cout << "Generating ENM (cargo) " << i+1 <<"/"<<atomVectorCargo.size() << std::endl;
-            
-            for(int j = i +1; j<atomVectorCargo.size();j++){
-                
-                real3 ri = atomVectorCargo[i].pos;
-                real3 rj = atomVectorCargo[j].pos;
-                real3 rij = rj - ri;
-                double r = sqrt(dot(rij,rij));
-                
-                if(atomVectorCargo[i].modelId == atomVectorCargo[j].modelId){
-                    
-                    if(r < rCut_ENM){
-                        
-                        enmFile << std::setw(10) << atomVectorCargo[i].serial <<
-                                   std::setw(10) << atomVectorCargo[j].serial <<
-                                   std::setprecision(6)                  <<
-                                   std::setw(12) << r                    << std::endl;
-                                   
-                        ENM_counter++;
-                        
-                    }
-                    
-                }
-            }
-        }
-        
-        for(atomType&  atm : atomVectorCargo){
-            
-            real sasaRatio = atm.SASA/SRC.getSASArandomCoil(atm.resName); //Side chain !!!!
-            if(sasaRatio>1.0) {sasaRatio = 1.0;}
-            
-            topFile << std::right
-                    << std::fixed
-                    << std::setprecision(4)
-                    << std::setw(10)                   
-                    << atm.serial                       << " " 
-                    << std::setw(5)                    
-                    << atm.resName                      << " " 
-                    << std::setw(5)                    
-                    << atm.modelId                      << " " 
-                    << std::setw(10)                   
-                    << atm.mass                         << " " 
-                    << std::setw(10)                   
-                    << atm.radius                       << " " 
-                    << std::setw(10)
-                    << getCharge(atm.resName)           << " " 
-                    << std::setw(10)
-                    << sasaRatio                        << " " 
-                    << std::setw(10)
-                    << atm.pos                          << std::endl;
-            
-            atomCount ++;
-        }
-        
-        for(atomType&  atm : atomVectorCargo){
-            spFile  << std::right
-                    << std::fixed
-                    << std::setprecision(4)
-                    << std::setw(10)
-                    << atm.pos                          << " "
-                    << std::setw(10)                   
-                    << atm.radius                       << " " 
-                    << std::setw(5)                    
-                    << atm.modelId                      << std::endl;
-        }
-    
-    }
-    
     ss.clear();
     ss.str(std::string());
     ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
-    
     
     return status;
     
