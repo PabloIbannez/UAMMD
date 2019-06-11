@@ -38,14 +38,12 @@ wallEpsilon 1
 
 #Tip
 tipMass 10000.0
-tipHeight 30.0
+
 tipRadius 20.0
+tipAngle  35.0
 
 kTip 30.0
 harmonicWallTip 100.0
-    
-tipRadius 20.0
-tipEpsilon 1.0
 
 tipHorizontalDisplacement 0.0
 
