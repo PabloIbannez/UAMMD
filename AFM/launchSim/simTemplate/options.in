@@ -38,6 +38,7 @@ wallEpsilon 1
 
 #Tip
 tipMass 10000.0
+tipHeight 30.0
 tipRadius 20.0
 
 kTip 30.0

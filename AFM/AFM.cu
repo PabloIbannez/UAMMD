@@ -296,23 +296,9 @@ void outputState(std::ofstream& os,
     
     fori(0,pd->getNumParticles()){
         
-        if(mId.raw()[sortedIndex[i]] < 0){
-            /*
-            if(box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]])).x < 0){
-                os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-		            << radius.raw()[sortedIndex[i]]                          <<  " "
-		            << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-            }
-            */
-            os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-                << radius.raw()[sortedIndex[i]]                          <<  " "
-                << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-                
-        } else {
-            os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-		        << radius.raw()[sortedIndex[i]]                          <<  " "
-		        << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-        }
+        os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
+            << radius.raw()[sortedIndex[i]]                          <<  " "
+            << mId.raw()[sortedIndex[i]]                             <<  std::endl;
     }
 	
 }
@@ -332,7 +318,9 @@ void outputState_Wall(std::ofstream& os,
 	fori(0,nx){
 	forj(0,ny){
 		
-		real3 wallAtom = {real(2.0)*wallRadius*i-box.boxSize.x*real(0.5),real(2.0)*wallRadius*j-box.boxSize.y*real(0.5),wallZ};
+		real3 wallAtom = {real(2.0)*wallRadius*i-box.boxSize.x*real(0.5),
+                          real(2.0)*wallRadius*j-box.boxSize.y*real(0.5),
+                          wallZ};
 		
 		os  << wallAtom    <<  " "
 		    << wallRadius  <<  " "
@@ -347,15 +335,19 @@ void outputState_TipWall(std::ofstream& os,
                            std::shared_ptr<ParticleData> pd,
                            Box box,
                            real3 tipPosition,
+                           real tipGaussianHeight,
                            real tipRadius,
                            real wallZ,
                            real wallRadius){
 							
 	outputState_Wall(os,sys,pd,box,wallZ,wallRadius);
     
-    os << tipPosition                << " " 
-       << tipRadius                  << " "
-       << 0                          << std::endl;
+    real3 tipSphere   = tipPosition;
+          tipSphere.z = tipSphere.z - tipGaussianHeight + tipRadius ;
+    
+    os << tipSphere  << " " 
+       << tipRadius  << " "
+       << 0          << std::endl;
 }
 
 class virusSelector{
@@ -435,6 +427,7 @@ int main(int argc, char *argv[]){
     //Tip
     real tipMass;
     real tipRadius;
+    real tipAngle;
     
     real kTip;
     real harmonicWallTip;
@@ -552,6 +545,8 @@ int main(int argc, char *argv[]){
         {sys->log<System::CRITICAL>("tipMass option has not been introduced properly.");}
         if(!(inputFile.getOption("tipRadius")>>tipRadius))
         {sys->log<System::CRITICAL>("tipRadius option has not been introduced properly.");}
+        if(!(inputFile.getOption("tipAngle")>>tipAngle))
+        {sys->log<System::CRITICAL>("tipAngle option has not been introduced properly.");}
         
         if(!(inputFile.getOption("kTip")>>kTip))
         {sys->log<System::CRITICAL>("kTip option has not been introduced properly.");}
@@ -822,44 +817,6 @@ int main(int argc, char *argv[]){
 	}
 	
     ////////////////////////////RUN/////////////////////////////////////
-    
-    //Set tip position
-    
-    real3 tipPosition = {0,0,0};
-    
-    {
-        real maxZ = -INFINITY;
-        real radiusClosestMax = 0;
-        
-		auto pos    = pd->getPos(access::location::cpu, access::mode::readwrite);
-		auto radius = pd->getRadius(access::location::cpu, access::mode::readwrite);
-        
-        real3 virusCentroid = {0,0,0};
-		
-		fori(0,N){
-			virusCentroid += make_real3(pos.raw()[i]);
-            real z = make_real3(pos.raw()[i]).z;
-            
-            if(z > maxZ){
-				maxZ = z;
-				radiusClosestMax = radius.raw()[i];
-			}
-		}
-		
-		virusCentroid /= N;
-		
-		//Move tip to {vC.x,vC.y,maxZ+(tipRadius+radiusClosest)+initialVirusTipSep}
-        
-        
-        sys->rng().next32();
-        sys->rng().next32();
-        real rndAngle = sys->rng().uniform(0,real(2)*M_PI);
-		
-        tipPosition = {virusCentroid.x+tipHorizontalDisplacement*std::cos(rndAngle),
-                       virusCentroid.y+tipHorizontalDisplacement*std::sin(rndAngle),
-                       maxZ + (tipRadius+radiusClosestMax)+initialVirusTipSep};
-	}
-	
 	
     {
 		NVT_AFM::Parameters par;
@@ -871,7 +828,9 @@ int main(int argc, char *argv[]){
         par.harmonicWallTip = harmonicWallTip;
 
         par.tipMass = tipMass;
+        
         par.tipRadius = tipRadius;
+        par.tipAngle  = tipAngle;
         
 		
 		auto verlet = std::make_shared<NVT_AFM>(pd, pgAll, sys, par);
@@ -881,11 +840,53 @@ int main(int argc, char *argv[]){
 		verlet->addInteractor(pairforces);
 		verlet->addInteractor(extWall);
         
+        
+        ////////////////////////////////////////////////////////////////
+        //Set tip position
+    
+        real3 tipPosition = {0,0,0};
+        
+        {
+            real maxZ = -INFINITY;
+            real radiusClosestMax = 0;
+            
+	    	auto pos    = pd->getPos(access::location::cpu, access::mode::readwrite);
+	    	auto radius = pd->getRadius(access::location::cpu, access::mode::readwrite);
+            
+            real3 virusCentroid = {0,0,0};
+	    	
+	    	fori(0,N){
+	    		virusCentroid += make_real3(pos.raw()[i]);
+                real z = make_real3(pos.raw()[i]).z;
+                
+                if(z > maxZ){
+	    			maxZ = z;
+	    			radiusClosestMax = radius.raw()[i];
+	    		}
+	    	}
+	    	
+	    	virusCentroid /= N;
+	    	
+	    	//Move tip to {vC.x,vC.y,maxZ+(tipHeight+radiusClosest)+initialVirusTipSep}
+            
+            
+            sys->rng().next32();
+            sys->rng().next32();
+            real rndAngle = sys->rng().uniform(0,real(2)*M_PI);
+	    	
+            tipPosition = {virusCentroid.x+tipHorizontalDisplacement*std::cos(rndAngle),
+                           virusCentroid.y+tipHorizontalDisplacement*std::sin(rndAngle),
+                           maxZ + (verlet->getGaussianHeight()+radiusClosestMax)+initialVirusTipSep};
+	    }
+        
         verlet->setTipPosition(tipPosition);
+        
+        ////////////////////////////////////////////////////////////////
 		
 		outputState_TipWall(outState,sys,pd,box,
                               verlet->getTipPosition(),
-                              verlet->getTipRadius(),
+                              verlet->getGaussianHeight(),
+                              tipRadius,
                               wallZ,wallRadius);
 		
 		////////////////////////////////////////////////////////////////
@@ -902,7 +903,8 @@ int main(int argc, char *argv[]){
 			if(j%printStepsTerm==1){
 				outputState_TipWall(outState,sys,pd,box,
                                     verlet->getTipPosition(),
-                                    verlet->getTipRadius(),
+                                    verlet->getGaussianHeight(),
+                                    tipRadius,
                                     wallZ,wallRadius);
 			}    
 			
@@ -923,7 +925,8 @@ int main(int argc, char *argv[]){
 			if(j%printSteps==1){
 				outputState_TipWall(outState,sys,pd,box,
                                       verlet->getTipPosition(),
-                                      verlet->getTipRadius(),
+                                      verlet->getGaussianHeight(),
+                                      tipRadius,
                                       wallZ,wallRadius);
 			}
 			
@@ -949,7 +952,8 @@ int main(int argc, char *argv[]){
 		        	if(j%printStepsTerm==1){
 		        		outputState_TipWall(outState,sys,pd,box,
                                             verlet->getTipPosition(),
-                                            verlet->getTipRadius(),
+                                            verlet->getGaussianHeight(),
+                                            tipRadius,
                                             wallZ,wallRadius);
 		        	}    
 		        	

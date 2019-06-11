@@ -114,6 +114,7 @@ namespace uammd{
 
     }
     
+    //Gaussian
     struct TipForce: public ParameterUpdatable{
     
     
@@ -122,24 +123,33 @@ namespace uammd{
         
         real  harmonicWallTip;
         
-        real  tipRadius;
+        real  gaussianHeight;
+        real  gaussianWidth;
+        
+        real  invGaussianWidth2;
         real  tipMass;
         
-        TipForce(real harmonicWallTip,real tipRadius,real tipMass):harmonicWallTip(harmonicWallTip),tipRadius(tipRadius),tipMass(tipMass){}
+        TipForce(real harmonicWallTip,
+                 real gaussianHeight,
+                 real gaussianWidth,
+                 real tipMass):harmonicWallTip(harmonicWallTip),
+                               gaussianHeight(gaussianHeight),
+                               gaussianWidth(gaussianWidth),
+                               invGaussianWidth2(real(1.0)/(gaussianWidth*gaussianWidth)),
+                               tipMass(tipMass){}
         
         __device__ __forceinline__ real3 force(const real4 &pos,const real &radius){
             
-            real3 rtp = tipPosition-make_real3(pos);
-            real  r2 = dot(rtp,rtp);
-            real  r  = sqrt(r2);
+            real3 rtp   = tipPosition-make_real3(pos);
             
-            real rMin = tipRadius+radius;
+            real beta = gaussianHeight*exp(-(rtp.x*rtp.x+rtp.y*rtp.y)*invGaussianWidth2);
+            real alpha = beta-rtp.z;
             
-            if(r < rMin){
+            if(alpha > real(0.0)){
                 
-                real fmod = harmonicWallTip*(r-rMin);
+                real fmodXY = real(2.0)*harmonicWallTip*alpha*beta*invGaussianWidth2;
                 
-                return fmod*(rtp/r);
+                return {-fmodXY*rtp.x,-fmodXY*rtp.y,-real(2.0)*harmonicWallTip*alpha};
                 
             } else {
                 return make_real3(0);
@@ -152,45 +162,17 @@ namespace uammd{
             return std::make_tuple(pos.raw(),radius.raw());
         }
         
-        void setTipPosition(real3 newTipPosition){
-            tipPosition = newTipPosition;
-        }
+        real getGaussianHeight(){return gaussianHeight;}
+        real getGaussianWidth(){return gaussianWidth;}
         
-        void setTipHeight(real newHeight){
-            tipPosition.z = newHeight;
-        }
+        void setTipPosition(real3 newTipPosition){tipPosition = newTipPosition;}
+        void setTipHeight(real newHeight){tipPosition.z = newHeight;}
         
-        real getTipHeight(){
-            return tipPosition.z;
-        }
+        real3 getTipPosition(){return tipPosition;}
+        real  getTipHeight(){return tipPosition.z;}
         
-        real3 getTipPosition(){
-            return tipPosition;
-        }
-        
-        void setTipRadius(real newTipRadius){
-            tipRadius = newTipRadius;
-        }
-        
-        real getTipRadius(){
-            return tipRadius;
-        }
-        
-        void setTipMass(real newMass){
-            tipMass = newMass;
-        }
-        
-        real getTipMass(){
-            return tipMass;
-        }
-        
-        void setTipVel(real newVel){
-            tipVel = newVel;
-        }
-        
-        real getTipVel(){
-            return tipVel;
-        }
+        void setTipVel(real newVel){tipVel = newVel;}
+        real getTipVel(){return tipVel;}
     
     };
     
@@ -223,7 +205,10 @@ namespace uammd{
                 real harmonicWallTip;
                 
                 real tipMass;
+                
                 real tipRadius;
+                real tipAngle;
+                
             };
             
         protected:
@@ -361,17 +346,27 @@ namespace uammd{
                 
                 ////////////////////////////////////////////////////////
                 
-                tipPot = std::make_shared<TipForce>(par.harmonicWallTip,par.tipRadius,par.tipMass);
+                /////
+                real tipRadius2  = par.tipRadius*par.tipRadius;
+                //Angle is ignored, gaussian width is set to 100
+                real tipGaussianWidth  = real(100.0);
+                real tipGaussianHeight = par.tipRadius/(real(1.0)-exp(-tipRadius2/(tipGaussianWidth*tipGaussianWidth)));
+                /////
+                
+                tipPot = std::make_shared<TipForce>(par.harmonicWallTip,
+                                                    tipGaussianHeight,tipGaussianWidth,
+                                                    par.tipMass);
+                                                    
                 tip = std::make_shared<ExternalForces<TipForce>>(pd, pg, sys,tipPot);
                 
-                invTipMass = real(1.0)/this->tipPot->getTipMass();
+                invTipMass = real(1.0)/par.tipMass;
                 
-                dampingTip = real(6.0)*real(M_PI)*viscosity*this->tipPot->getTipRadius();
+                dampingTip = real(6.0)*real(M_PI)*viscosity*par.tipRadius;
                 
                 bTip = real(1.0)/(1.0+dampingTip*dt*invTipMass*real(0.5));
                 aTip = (1.0-dampingTip*dt*invTipMass*real(0.5))*bTip;
                 
-                noiseAmplitudeTip = noiseAmplitude*sqrtf(this->tipPot->getTipRadius())*invTipMass;
+                noiseAmplitudeTip = noiseAmplitude*sqrtf(par.tipRadius)*invTipMass;
                 
                 ////////////////////////////////////////////////////////
                 
@@ -391,14 +386,15 @@ namespace uammd{
             
             real3 sumTipForce();
             
+            real getGaussianHeight(){return this->tipPot->getGaussianHeight();}
+            real getGaussianWidth(){return this->tipPot->getGaussianWidth();}
+            
             void setTipPosition(real3 newTipPosition){this->tipPot->setTipPosition(newTipPosition);}
             void setTipPositionEq(real newTipPosEq){tipPosEq = newTipPosEq;}
             void setTipHeight(real newHeight){this->tipPot->setTipHeight(newHeight);}
-            void setTipRadius(real newTipRadius){this->tipPot->setTipRadius(newTipRadius);}
             
             real3 getTipPosition(){return this->tipPot->getTipPosition();}
             real  getTipPositionEq(){return tipPosEq;}
-            real  getTipRadius(){return this->tipPot->getTipRadius();}
             
             real3 getTipForce(){return integrationTipForce;}
     };
