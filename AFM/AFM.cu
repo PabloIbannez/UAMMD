@@ -362,6 +362,17 @@ class virusSelector{
         }
 };
 
+class energyMeasurer{
+    
+    private:
+        
+        
+    
+    public:
+    
+    
+};
+
 using NVT     = VerletNVT::GronbechJensen;
 using NVT_AFM = AFM::AFM_integrator::AFM_integrator;
 

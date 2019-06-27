@@ -57,7 +57,7 @@ namespace Potential {
     }
     
     //2^(1/6) effective radius factor
-    constexpr real _EFFR_F = 1.122462;
+    constexpr real _EFFR_F  = 1.122462;
     constexpr real _EFFR_F2 = 1.259921;
     
     struct ProteinProteinParameters{

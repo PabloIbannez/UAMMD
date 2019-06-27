@@ -12,6 +12,8 @@ using namespace proteinManager;
 struct atomType{
 	
     int serial;
+    std::string name;
+    std::string structType;
     int modelId;
     std::string chainId;
     std::string resName;

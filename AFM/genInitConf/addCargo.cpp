@@ -132,8 +132,9 @@ int main(int argc, char *argv[]){
     ////////////////////////////////////////////////////////////////////
     
     geometricTransformations::uniformScaling(pdbOutputCargo,0.1);
+    
     //real3 centerCargo = computeCentroid(pdbOutputCargo);
-    //geometricTransformations::rotation(pdbOutputCargo,centerCargo,{1,0,0},99.0*(M_PI/180.0));
+    //geometricTransformations::rotation(pdbOutputCargo,centerCargo,{1,0,0},66.0*(M_PI/180.0));
     
     ////////////////////////////////////////////////////////////////////
     
@@ -262,7 +263,7 @@ int main(int argc, char *argv[]){
     
     ss.clear();
     ss.str(std::string());
-    ss << "sed -i \'1s/^/" << ENM_counter <<"\\n/\' "<< outputENMName;
+    ss << "sed -i \'1s/.*/" << ENM_counter <<"/\' "<< outputENMName;
     std::cout << ss.str() << std::endl;
     status = std::system(ss.str().c_str());
     

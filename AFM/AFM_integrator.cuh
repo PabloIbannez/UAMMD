@@ -117,7 +117,6 @@ namespace uammd{
     //Gaussian
     struct TipForce: public ParameterUpdatable{
     
-    
         real3 tipPosition = {0,0,0};
         real  tipVel = 0;
         
