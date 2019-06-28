@@ -295,24 +295,9 @@ void outputState(std::ofstream& os,
     os<<"#Lx="<<0.5*box.boxSize.x<<";Ly="<<0.5*box.boxSize.y<<";Lz="<<0.5*box.boxSize.z<<";"<<std::endl;
     
     fori(0,pd->getNumParticles()){
-        
-        if(mId.raw()[sortedIndex[i]] < 0){
-            /*
-            if(box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]])).x < 0){
-                os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-		            << radius.raw()[sortedIndex[i]]                          <<  " "
-		            << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-            }
-            */
-            os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-                << radius.raw()[sortedIndex[i]]                          <<  " "
-                << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-                
-        } else {
-            os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
-		        << radius.raw()[sortedIndex[i]]                          <<  " "
-		        << mId.raw()[sortedIndex[i]]                             <<  std::endl;
-        }
+        os  << box.apply_pbc(make_real3(pos.raw()[sortedIndex[i]]))  <<  " "
+            << radius.raw()[sortedIndex[i]]                          <<  " "
+            << mId.raw()[sortedIndex[i]]                             <<  std::endl;
     }
 	
 }
@@ -895,18 +880,18 @@ int main(int argc, char *argv[]){
         sys->log<System::MESSAGE>("Thermalization stars");
         
         //Thermalization
-        forj(0,nstepsTerm){
+        fori(0,nstepsTerm){
 			verlet->forwardTime();
 		
 			//Write results
-			if(j%printStepsTerm==1){
+			if(i%printStepsTerm==1){
 				outputState_TipWall(outState,sys,pd,box,
                                     verlet->getTipPosition(),
                                     verlet->getTipRadius(),
                                     wallZ,wallRadius);
 			}    
 			
-			if(j%sortSteps == 0){
+			if(i%sortSteps == 0){
 				pd->sortParticles();
 			}
 		}
@@ -915,27 +900,31 @@ int main(int argc, char *argv[]){
         
         sys->log<System::MESSAGE>("Simulation starts");
         
-		
+		int t=0;
 		//Run the simulation
-		forj(0,nsteps){
+		fori(0,nsteps){
 			verlet->forwardTime();
+            t++;
             
-			if(j%printSteps==1){
+			if(i%printSteps==1){
 				outputState_TipWall(outState,sys,pd,box,
                                       verlet->getTipPosition(),
                                       verlet->getTipRadius(),
                                       wallZ,wallRadius);
 			}
 			
-			if(j%measureSteps == 0){
+			if(i%measureSteps == 0){
                 real currentForce = -verlet->getTipForce().z*real(0.0016605391);
                 // 1 kj/(mol·nm) = 0.0016605391 nN
-                outTip << verlet->getTipPositionEq() << " " << verlet->getTipPosition().z << " " << currentForce << std::endl;
+                outTip << t++ << " " 
+                       << verlet->getTipPositionEq() << " " 
+                       << verlet->getTipPosition().z << " " 
+                       << currentForce << std::endl;
                 
                 if(currentForce > maxIndentationForce){break;}
             }
             
-            if(j%descentSteps == 0){
+            if(i%descentSteps == 0){
                 real currentTipPositionEq = verlet->getTipPositionEq();
                 verlet->setTipPositionEq(currentTipPositionEq-descentDistace);
                 
@@ -944,6 +933,7 @@ int main(int argc, char *argv[]){
                 //Thermalization
                 forj(0,nstepsTerm){
 		        	verlet->forwardTime();
+                    t++;
 		        
 		        	//Write results
 		        	if(j%printStepsTerm==1){
@@ -960,7 +950,7 @@ int main(int argc, char *argv[]){
             }
             
 			
-			if(j%sortSteps == 0){
+			if(i%sortSteps == 0){
 				pd->sortParticles();
 			}
 		}
